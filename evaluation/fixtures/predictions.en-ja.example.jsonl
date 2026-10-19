@@ -1,0 +1,20 @@
+{"id":"en-ja-transit-001","prediction":"空港行きのバスは6番乗り場から出ますか？","latency_ms":500,"model_build":"fixture-reference-ja-1","device":"fixture-device","processing_mode":"local_only"}
+{"id":"ja-en-transit-001","prediction":"Does the last train leave at 11:40 p.m.?","latency_ms":750,"model_build":"fixture-reference-ja-1","device":"fixture-device","processing_mode":"online_quality"}
+{"id":"en-ja-lodging-001","prediction":"アミナ・カーンの名前で2泊予約しています。","latency_ms":540,"model_build":"fixture-reference-ja-1","device":"fixture-device","processing_mode":"auto_local"}
+{"id":"ja-en-lodging-001","prediction":"The room key does not work.","latency_ms":790,"model_build":"fixture-reference-ja-1","device":"fixture-device","processing_mode":"auto_online"}
+{"id":"en-ja-dining-001","prediction":"私はエビアレルギーなので、エビのだしを使わないでください。","latency_ms":570,"model_build":"fixture-reference-ja-1","device":"fixture-device","processing_mode":"local_only"}
+{"id":"ja-en-dining-001","prediction":"Does this dish contain pork?","latency_ms":730,"model_build":"fixture-reference-ja-1","device":"fixture-device","processing_mode":"online_quality"}
+{"id":"en-ja-directions-001","prediction":"さくらクリニックまでの最も安全な道を教えてください。","latency_ms":600,"model_build":"fixture-reference-ja-1","device":"fixture-device","processing_mode":"auto_local"}
+{"id":"ja-en-directions-001","prediction":"Turn right after the bank, not before it.","latency_ms":840,"model_build":"fixture-reference-ja-1","device":"fixture-device","processing_mode":"auto_online"}
+{"id":"en-ja-payments-001","prediction":"正しい金額は3,800円ではなく、3,200円です。","latency_ms":620,"model_build":"fixture-reference-ja-1","device":"fixture-device","processing_mode":"local_only"}
+{"id":"ja-en-payments-001","prediction":"I would like to pay by card, not cash.","latency_ms":760,"model_build":"fixture-reference-ja-1","device":"fixture-device","processing_mode":"online_quality"}
+{"id":"en-ja-emergency-001","prediction":"救急車を呼んでください。彼女は呼吸をしていますが、意識がありません。","latency_ms":650,"model_build":"fixture-reference-ja-1","device":"fixture-device","processing_mode":"auto_local"}
+{"id":"ja-en-emergency-001","prediction":"My friend fell, but did not hit their head.","latency_ms":880,"model_build":"fixture-reference-ja-1","device":"fixture-device","processing_mode":"auto_online"}
+{"id":"en-ja-health-001","prediction":"夕食前ではなく、夕食後に錠剤を1錠飲みます。","latency_ms":670,"model_build":"fixture-reference-ja-1","device":"fixture-device","processing_mode":"local_only"}
+{"id":"ja-en-health-001","prediction":"The fever started yesterday, and it was 38.2 degrees this morning.","latency_ms":800,"model_build":"fixture-reference-ja-1","device":"fixture-device","processing_mode":"online_quality"}
+{"id":"en-ja-social-001","prediction":"住所を書いていただけますか？","latency_ms":580,"model_build":"fixture-reference-ja-1","device":"fixture-device","processing_mode":"auto_local"}
+{"id":"ja-en-social-001","prediction":"I speak only a little Japanese. Please speak slowly.","latency_ms":830,"model_build":"fixture-reference-ja-1","device":"fixture-device","processing_mode":"auto_online"}
+{"id":"en-ja-logistics-001","prediction":"このバッグ2個を午後5時まで預かってください。","latency_ms":610,"model_build":"fixture-reference-ja-1","device":"fixture-device","processing_mode":"local_only"}
+{"id":"ja-en-logistics-001","prediction":"Exit C is opposite the elevator.","latency_ms":770,"model_build":"fixture-reference-ja-1","device":"fixture-device","processing_mode":"online_quality"}
+{"id":"en-ja-shopping-001","prediction":"大きな青い傘ではなく、小さい黒い傘が欲しいです。","latency_ms":640,"model_build":"fixture-reference-ja-1","device":"fixture-device","processing_mode":"auto_local"}
+{"id":"ja-en-logistics-002","prediction":"Can I book one taxi for 7:00 tomorrow morning?","latency_ms":860,"model_build":"fixture-reference-ja-1","device":"fixture-device","processing_mode":"auto_online"}

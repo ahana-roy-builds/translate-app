@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:locallingo:schema:trusted-artifact:v1",
+  "title": "LocalLingo content-addressed signed artifact reference",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact", "bundle", "predicate_type"],
+  "properties": {
+    "artifact": {"$ref": "#/$defs/artifact"},
+    "bundle": {"$ref": "#/$defs/artifact"},
+    "predicate_type": {"type": "string", "pattern": "^urn:locallingo:attestation:[a-z0-9-]+:v[0-9]+$"}
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "media_type"],
+      "properties": {
+        "path": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "size_bytes": {"type": "integer", "minimum": 1, "maximum": 10737418240},
+        "media_type": {"type": "string", "minLength": 1, "maxLength": 200}
+      }
+    }
+  }
+}

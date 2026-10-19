@@ -1,0 +1,123 @@
+{
+  "configurations" : [
+    {
+      "name" : "hindi-preset-phrase",
+      "status" : "supported-not-installed"
+    },
+    {
+      "name" : "hindi-preset-shortDictation",
+      "status" : "supported-not-installed"
+    },
+    {
+      "name" : "hindi-preset-progressiveShortDictation",
+      "status" : "supported-not-installed"
+    },
+    {
+      "name" : "hindi-preset-longDictation",
+      "status" : "supported-not-installed"
+    },
+    {
+      "name" : "hindi-preset-progressiveLongDictation",
+      "status" : "supported-not-installed"
+    },
+    {
+      "name" : "hindi-preset-timeIndexedLongDictation",
+      "status" : "supported-not-installed"
+    },
+    {
+      "name" : "hindi-exact-live",
+      "status" : "supported-not-installed"
+    },
+    {
+      "name" : "hindi-exact-final",
+      "status" : "supported-not-installed"
+    },
+    {
+      "name" : "hindi-exact-live-plus-final",
+      "status" : "supported-not-installed"
+    },
+    {
+      "name" : "english-speech-exact-live",
+      "status" : "supported-not-installed"
+    },
+    {
+      "name" : "english-speech-exact-final",
+      "status" : "supported-not-installed"
+    },
+    {
+      "name" : "english-speech-live-final-plus-hindi-dictation-live-final",
+      "status" : "supported-not-installed"
+    },
+    {
+      "name" : "english-dictation-exact-live",
+      "status" : "supported-not-installed"
+    },
+    {
+      "name" : "english-dictation-exact-final",
+      "status" : "supported-not-installed"
+    },
+    {
+      "name" : "english-dictation-live-final-plus-hindi-dictation-live-final",
+      "status" : "supported-not-installed"
+    }
+  ],
+  "dictationHindiSupportedLocales" : [
+    {
+      "bcp47" : "hi-IN",
+      "identifier" : "hi_IN"
+    }
+  ],
+  "localeProbes" : [
+    {
+      "dictationEquivalent" : "hi_IN",
+      "dictationEquivalentBCP47" : "hi-IN",
+      "dictationExactSupportedLocale" : true,
+      "dictationStatus" : "supported-not-installed",
+      "requestedBCP47" : "hi-IN",
+      "requestedLocale" : "hi-IN",
+      "speechEquivalent" : "hi_IN",
+      "speechEquivalentBCP47" : "hi-IN",
+      "speechExactSupportedLocale" : false,
+      "speechStatus" : "unsupported"
+    },
+    {
+      "dictationEquivalent" : "hi_IN",
+      "dictationEquivalentBCP47" : "hi-IN",
+      "dictationExactSupportedLocale" : false,
+      "dictationStatus" : "supported-not-installed",
+      "requestedBCP47" : "hi-Latn",
+      "requestedLocale" : "hi-Latn",
+      "speechEquivalent" : "hi_IN",
+      "speechEquivalentBCP47" : "hi-IN",
+      "speechExactSupportedLocale" : false,
+      "speechStatus" : "unsupported"
+    },
+    {
+      "dictationEquivalent" : "hi_IN",
+      "dictationEquivalentBCP47" : "hi-IN",
+      "dictationExactSupportedLocale" : false,
+      "dictationStatus" : "supported-not-installed",
+      "requestedBCP47" : "hi-IN-translit",
+      "requestedLocale" : "hi-IN-translit",
+      "speechEquivalent" : "hi_IN",
+      "speechEquivalentBCP47" : "hi-IN",
+      "speechExactSupportedLocale" : false,
+      "speechStatus" : "unsupported"
+    }
+  ],
+  "maximumReservedLocales" : 5,
+  "queriedCompatibleAudioFormat" : false,
+  "readOnly" : true,
+  "requestedEnglishLocale" : "en-US",
+  "requestedHindiLocale" : "hi-IN",
+  "requestedInstallation" : false,
+  "reservedLocales" : [
+
+  ],
+  "resolvedEnglishDictationLocale" : "en_US",
+  "resolvedEnglishSpeechLocale" : "en_US",
+  "resolvedHindiLocale" : "hi_IN",
+  "speechHindiSupportedLocales" : [
+
+  ]
+}

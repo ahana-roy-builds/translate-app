@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/traveler-translation/evaluation/prediction.schema.json",
+  "title": "Traveler translation prediction",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "prediction",
+    "latency_ms",
+    "model_build",
+    "device",
+    "processing_mode"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{2,127}$"
+    },
+    "prediction": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "latency_ms": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 300000
+    },
+    "model_build": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "device": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "processing_mode": {
+      "type": "string",
+      "enum": ["local_only", "online_quality", "auto_local", "auto_online"]
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$",
+      "description": "Required by release evaluation to bind rows to the separately hashed run identity."
+    }
+  }
+}

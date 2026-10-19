@@ -1,0 +1,27 @@
+{
+  "dataset": "FLEURS",
+  "datasetOwner": "Google",
+  "datasetRevision": "70bb2e84b976b7e960aa89f1c648e09c59f894dd",
+  "datasetURL": "https://huggingface.co/datasets/google/fleurs",
+  "durationSeconds": 3.6,
+  "fixtureFilename": "hindi-dictation-fixture.wav",
+  "language": "hi-IN",
+  "license": "CC BY 4.0",
+  "licenseURL": "https://creativecommons.org/licenses/by/4.0/",
+  "localRetention": "The voice fixture is fetched locally for guarded physical-device research and is not committed or included in production builds.",
+  "modifications": "None. The original 16 kHz mono float-PCM WAV is retained byte-for-byte.",
+  "numSamples": 57600,
+  "paperURL": "https://arxiv.org/abs/2205.12446",
+  "referenceTranscript": "पुलिस ने कहा कि शव लगभग एक दिन पुराना है",
+  "researchUse": "Deterministic offline DictationTranscriber plumbing test only; excluded from accuracy and release evaluation.",
+  "speakerConsentEvidence": "The public dataset materials reviewed for this fixture do not document a project-specific speaker release. Keep the clip local and uncommitted; do not use it as quality or release evidence.",
+  "sourceFilename": "4006648279216781989.wav",
+  "sourceRow": {
+    "config": "hi_in",
+    "id": 1656,
+    "index": 156,
+    "split": "validation"
+  },
+  "sourceRowURL": "https://datasets-server.huggingface.co/rows?dataset=google%2Ffleurs&config=hi_in&split=validation&offset=156&length=1&revision=70bb2e84b976b7e960aa89f1c648e09c59f894dd",
+  "sourceSHA256": "9e34c3ddde1a12e9b4925ac1f8621018a4ab21096c870c18b55fab06f132e552"
+}

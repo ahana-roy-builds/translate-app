@@ -1,0 +1,28 @@
+{
+  "name": "travel-translator-backend",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "patch:storekit": "node scripts/apply-storekit-ocsp-patch.mjs",
+    "build": "npm run patch:storekit && tsc -p tsconfig.json",
+    "check": "npm run typecheck",
+    "start": "node dist/server.js",
+    "dev": "npm run build && RUNTIME_MODE=development node --enable-source-maps dist/dev-server.js",
+    "test": "npm run build && node --test --experimental-test-isolation=none test/*.test.mjs",
+    "typecheck": "npm run patch:storekit && tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@apple/app-store-server-library": "3.1.0",
+    "fastify": "^5.4.0",
+    "node-fetch": "2.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/node-fetch": "2.6.13",
+    "typescript": "^5.8.3"
+  }
+}

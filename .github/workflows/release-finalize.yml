@@ -1,0 +1,63 @@
+name: release-final-decision
+
+on:
+  workflow_dispatch:
+    inputs:
+      decision: {description: "Relative release-decision.v2 JSON", required: true, type: string}
+      bundle: {description: "New relative finalizer Sigstore bundle path", required: true, type: string}
+
+permissions: {contents: read, id-token: write, attestations: write, artifact-metadata: write}
+
+jobs:
+  finalize:
+    environment: release-finalizer
+    runs-on: [self-hosted, linux, locallingo-release]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with: {persist-credentials: false, ref: "${{ github.sha }}"}
+      - name: Verify pinned release verifier and helpers
+        run: |
+          echo 'a51a69859510b68f33af77c0eea1f06a94bc3bf2dd9945287156243661656c0b  scripts/validate-attestation-subject.py' | sha256sum -c -
+          echo '924788a5f04b93e69c0b483056d5535aff64d3018634b6c09f7ac7897c8b42a8  scripts/publish-release-artifact.py' | sha256sum -c -
+          echo '7698cbac066097bfc146309cc264ef3c75f4a211c56fca911740d9844741673e  evaluation/scripts/verify_trusted_release.py' | sha256sum -c -
+          echo '6fd36074228c55ebd7b6216ebf96a391590bbddbca27dc70fd34c5cee42398a5  evaluation/scripts/validate_release_evidence.py' | sha256sum -c -
+          echo 'ab547cd5d2e8f7b7f126a94e73feda2685b9a9ece147324a5d3b1177b280007c  evaluation/scripts/score_predictions.py' | sha256sum -c -
+          echo '1e562a12e6c3a4cddca3df6e673d512a3b9dcfc3ed23ed720614651638f2bfde  evaluation/scripts/validate_corpus.py' | sha256sum -c -
+          echo 'e5cd3a8cd85e567bf4ad8b00bbf300e6da0a3655f8ab949474329255e166b1be  evaluation/scripts/strict_json.py' | sha256sum -c -
+      - id: decision
+        env: {ROOT: "${{ vars.RELEASE_ARTIFACT_ROOT }}", SUBJECT: "${{ inputs.decision }}"}
+        run: |
+          [[ "$GITHUB_REF" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+([-+][A-Za-z0-9.-]+)?$ ]] || exit 2
+          path="$(/usr/bin/python3 -I scripts/validate-attestation-subject.py --artifact-root "$ROOT" --subject "$SUBJECT" --predicate-type urn:locallingo:attestation:release-decision:v2 --snapshot-directory "$RUNNER_TEMP" --allow urn:locallingo:attestation:release-decision:v2)"
+          printf 'path=%s\n' "$path" >> "$GITHUB_OUTPUT"
+      - name: Verify the complete graph before signing
+        env:
+          ARTIFACT_ROOT: "${{ vars.RELEASE_ARTIFACT_ROOT }}"
+          DECISION_SNAPSHOT: "${{ steps.decision.outputs.path }}"
+          TRUST_POLICY: "${{ vars.RELEASE_TRUST_POLICY_PATH }}"
+          TRUST_POLICY_SHA256: "${{ vars.RELEASE_TRUST_POLICY_SHA256 }}"
+        run: |
+          /usr/bin/python3 -I evaluation/scripts/verify_trusted_release.py \
+            --artifact-root "$ARTIFACT_ROOT" --decision-snapshot "$DECISION_SNAPSHOT" \
+            --trust-policy "$TRUST_POLICY" --trust-policy-sha256 "$TRUST_POLICY_SHA256"
+      - id: attest
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        with:
+          subject-path: "${{ steps.decision.outputs.path }}"
+          predicate-type: urn:locallingo:attestation:release-decision:v2
+          predicate-path: "${{ steps.decision.outputs.path }}"
+      - name: Verify the new signature before publication
+        env:
+          ARTIFACT_ROOT: "${{ vars.RELEASE_ARTIFACT_ROOT }}"
+          DECISION_SNAPSHOT: "${{ steps.decision.outputs.path }}"
+          FINALIZER_BUNDLE: "${{ steps.attest.outputs.bundle-path }}"
+          TRUST_POLICY: "${{ vars.RELEASE_TRUST_POLICY_PATH }}"
+          TRUST_POLICY_SHA256: "${{ vars.RELEASE_TRUST_POLICY_SHA256 }}"
+        run: |
+          /usr/bin/python3 -I evaluation/scripts/verify_trusted_release.py \
+            --artifact-root "$ARTIFACT_ROOT" --decision-snapshot "$DECISION_SNAPSHOT" \
+            --finalizer-bundle "$FINALIZER_BUNDLE" \
+            --trust-policy "$TRUST_POLICY" --trust-policy-sha256 "$TRUST_POLICY_SHA256"
+      - name: Preserve verified finalizer bundle
+        env: {ROOT: "${{ vars.RELEASE_ARTIFACT_ROOT }}", BUNDLE: "${{ inputs.bundle }}", SOURCE: "${{ steps.attest.outputs.bundle-path }}"}
+        run: /usr/bin/python3 -I scripts/publish-release-artifact.py --artifact-root "$ROOT" --source "$SOURCE" --destination "$BUNDLE"

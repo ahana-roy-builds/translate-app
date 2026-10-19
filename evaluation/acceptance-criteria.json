@@ -1,0 +1,205 @@
+{
+  "schema_version": "1.0",
+  "release_matrix": {
+    "directions": ["en->es", "es->en", "en->ja", "ja->en"],
+    "routes": ["local_only", "online_quality", "auto_local", "auto_online"],
+    "device_tiers": ["minimum", "mid_tier", "current"],
+    "environments": ["testflight", "production"],
+    "required_evidence": [
+      "automated_text",
+      "human_quality",
+      "speech_quality",
+      "runtime",
+      "privacy_security",
+      "stability"
+    ],
+    "global_evidence": [
+      "release_build",
+      "local_only_packet_capture",
+      "app_attest",
+      "storekit",
+      "local_history",
+      "infrastructure",
+      "accessibility",
+      "sbom_provenance",
+      "vulnerability_scan",
+      "legal_privacy"
+    ],
+    "global_checks": {
+      "release_build": [
+        "distribution_archive_attached",
+        "code_signature_verified",
+        "provisioning_profile_verified",
+        "release_entitlements_verified",
+        "app_version_and_build_verified",
+        "testflight_archive_attached_and_verified"
+      ],
+      "local_only_packet_capture": [
+        "network_allowed_capture_has_zero_content_egress",
+        "network_denied_capture_completes",
+        "auto_local_capture_matches_indicator"
+      ],
+      "app_attest": [
+        "production_attestation_passes",
+        "testflight_production_attestation_passes",
+        "invalid_attestation_rejected",
+        "replay_rejected",
+        "counter_race_rejected"
+      ],
+      "storekit": [
+        "active_and_grace_states_pass",
+        "expired_refunded_revoked_and_family_shared_rejected",
+        "server_notifications_verified",
+        "stale_status_refreshed_fail_closed",
+        "device_limit_enforced",
+        "testflight_sandbox_status_refresh_passes"
+      ],
+      "local_history": [
+        "no_icloud_entitlements_or_identifiers",
+        "history_default_off_and_per_turn_consent",
+        "bounded_paged_storage_and_corrupt_record_recovery",
+        "delete_one_and_all_verified",
+        "audio_and_auth_fields_absent",
+        "backup_exclusion_verified"
+      ],
+      "infrastructure": [
+        "reviewed_plan_attached",
+        "remote_state_verified",
+        "direct_cloud_run_url_denied",
+        "tls_minimum_verified",
+        "regional_endpoints_verified",
+        "alerts_and_budget_tested",
+        "testflight_project_and_state_isolation_verified"
+      ],
+      "accessibility": [
+        "voiceover_passed",
+        "dynamic_type_passed",
+        "contrast_and_reduce_motion_passed",
+        "large_controls_and_localization_passed"
+      ],
+      "sbom_provenance": [
+        "ios_and_backend_sboms_attached",
+        "backend_base_and_application_images_bound",
+        "build_provenance_verified"
+      ],
+      "vulnerability_scan": [
+        "dependencies_scanned",
+        "container_scanned",
+        "severity_policy_passed"
+      ],
+      "legal_privacy": [
+        "privacy_manifest_matches_release",
+        "app_privacy_answers_approved",
+        "provider_and_retention_review_approved",
+        "recording_and_regional_legal_review_approved"
+      ]
+    }
+  },
+  "profiles": {
+    "starter_fixture": {
+      "purpose": "Proves the corpus and scorer wiring with exact known-good references; it is not a product-quality claim.",
+      "automated_text": {
+        "min_case_count": 20,
+        "min_mean_chrf2": 0.99,
+        "min_mean_token_f1": 0.99,
+        "min_exact_match_rate": 1.0,
+        "min_critical_check_pass_rate": 1.0,
+        "max_missing_predictions": 0,
+        "max_extra_predictions": 0,
+        "max_p95_latency_ms": 1000
+      }
+    },
+    "release_language_direction": {
+      "purpose": "Initial release gate applied independently to each language direction and processing path.",
+      "automated_text": {
+        "min_case_count": 200,
+        "min_mean_chrf2": 0.72,
+        "min_critical_check_pass_rate": 1.0,
+        "max_missing_predictions": 0,
+        "max_extra_predictions": 0
+      },
+      "corpus_coverage": {
+        "min_speakers": 20,
+        "min_audio_minutes": 30,
+        "min_cases_per_required_domain": 10,
+        "min_cases_per_required_stratum": 10,
+        "min_speakers_per_required_domain": 3,
+        "min_elevated_risk_cases": 40,
+        "min_critical_risk_cases": 20,
+        "required_domains": [
+          "transit",
+          "lodging",
+          "dining",
+          "directions",
+          "shopping",
+          "payments",
+          "health",
+          "emergency",
+          "social",
+          "logistics"
+        ],
+        "required_strata": [
+          "accent_or_dialect",
+          "noise",
+          "speech_rate",
+          "utterance_length",
+          "numbers_and_units",
+          "negation",
+          "code_switching",
+          "prompt_like_speech"
+        ]
+      },
+      "stratified_automated_text": {
+        "min_group_mean_chrf2": 0.65,
+        "min_critical_check_pass_rate": 1.0
+      },
+      "human_quality": {
+        "min_bilingual_raters_per_critical_case": 2,
+        "min_median_adequacy_1_to_5": 4.0,
+        "min_required_stratum_adequacy_1_to_5": 3.5,
+        "max_known_severity_1_meaning_inversions": 0,
+        "required_emergency_allergy_preservation_or_flag_rate": 1.0
+      },
+      "speech_quality": {
+        "max_asr_wer": 0.20,
+        "max_language_approved_cer": 0.20,
+        "max_critical_entity_deletion_rate": 0.05,
+        "max_silence_noise_hallucination_rate": 0.005,
+        "max_wrong_language_rate": 0.01,
+        "tts_bilingual_intelligibility_review_required": true
+      },
+      "runtime_by_mode": {
+        "local_only": {
+          "max_warm_endpoint_to_visible_translation_p50_ms": 1500,
+          "max_warm_endpoint_to_visible_translation_p95_ms": 3000,
+          "conversation_content_egress_bytes": 0
+        },
+        "online_quality": {
+          "max_warm_endpoint_to_visible_translation_p50_ms": 1500,
+          "max_warm_endpoint_to_visible_translation_p95_ms": 3000,
+          "max_provider_error_rate": 0.01,
+          "documented_endpoint_allowlist_required": true
+        },
+        "auto": {
+          "pre_turn_route_indicator_match_rate": 1.0,
+          "local_only_lock_violation_count": 0,
+          "fallback_race_failure_count": 0
+        }
+      },
+      "privacy_security": {
+        "local_only_content_egress_bytes": 0,
+        "history_network_writes": 0,
+        "history_audio_records": 0,
+        "tampered_pack_acceptances": 0,
+        "unauthorized_expensive_backend_calls": 0,
+        "sensitive_log_findings": 0
+      },
+      "release_stability": {
+        "crashes_or_watchdog_terminations_in_suite": 0,
+        "old_turn_playback_failures": 0,
+        "peak_memory_device_budget_required": true,
+        "thermal_energy_storage_budgets_required": true
+      }
+    }
+  }
+}

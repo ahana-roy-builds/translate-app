@@ -1,0 +1,13 @@
+// Copy to Staging.local.xcconfig for a remote staging build. Do not commit it.
+APP_BUNDLE_IDENTIFIER = org.REPLACE.locallingo.staging
+DEVELOPMENT_TEAM = REPLACE1234
+APP_ATTEST_ENVIRONMENT = development
+APP_RUNTIME_ENVIRONMENT = staging
+RELEASE_BUILD_ID = REPLACE_RELEASE_BUILD_ID
+API_BASE_URL = https:/$()/staging-api.REPLACE.tld
+STOREKIT_MONTHLY_PRODUCT_ID = org.REPLACE.locallingo.staging.pro.monthly
+STOREKIT_ANNUAL_PRODUCT_ID = org.REPLACE.locallingo.staging.pro.annual
+PRIVACY_POLICY_URL = https:/$()/REPLACE.tld/privacy
+TERMS_URL = https:/$()/REPLACE.tld/terms
+SUPPORT_URL = https:/$()/REPLACE.tld/support
+LOCAL_LLM_EXPERIMENT = 0

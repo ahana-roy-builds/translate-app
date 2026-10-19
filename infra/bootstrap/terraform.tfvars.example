@@ -1,0 +1,17 @@
+project_id        = "replace-with-gcp-project"
+region            = "us-central1"
+firestore_location = "us-central1"
+environment       = "production"
+service_name      = "locallingo-api"
+
+secret_ids = [
+  "apple-app-attest-root-ca-pem",
+  "apple-iap-signing-key-p8",
+  "apple-storekit-root-ca-pems",
+]
+
+deletion_protection = true
+
+labels = {
+  owner = "mobile-team"
+}

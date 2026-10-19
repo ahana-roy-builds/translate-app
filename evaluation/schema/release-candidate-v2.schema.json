@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:locallingo:schema:release-candidate:v2",
+  "title": "LocalLingo signed release candidate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "candidate_id", "repository", "source_commit", "source_tree", "source_ref", "app_version", "build_number", "created_at", "preflight", "criteria", "corpus", "device_registry", "ios_builds", "backend", "environments", "device_runs"],
+  "properties": {
+    "schema_version": {"const": "2.0"},
+    "candidate_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{15,127}$"},
+    "repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+    "source_commit": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
+    "source_tree": {"type": "string", "pattern": "^[a-f0-9]{40,64}$"},
+    "source_ref": {"type": "string", "pattern": "^refs/tags/v[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$"},
+    "app_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "build_number": {"type": "string", "pattern": "^[1-9][0-9]*$"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "preflight": {"$ref": "trusted-artifact.schema.json"},
+    "criteria": {"$ref": "trusted-artifact.schema.json"},
+    "corpus": {"$ref": "trusted-artifact.schema.json"},
+    "device_registry": {"$ref": "trusted-artifact.schema.json"},
+    "ios_builds": {
+      "type": "object", "additionalProperties": false,
+      "required": ["release", "testflight"],
+      "properties": {"release": {"$ref": "trusted-artifact.schema.json"}, "testflight": {"$ref": "trusted-artifact.schema.json"}}
+    },
+    "backend": {
+      "type": "object", "additionalProperties": false,
+      "required": ["image_name", "environment_image_names", "image_digest", "runnable_manifest_digest", "provenance", "sbom", "vulnerability_scan", "secret_scan"],
+      "properties": {
+        "image_name": {"type": "string", "minLength": 1},
+        "environment_image_names": {"type": "object", "additionalProperties": false, "required": ["production", "testflight"], "properties": {"production": {"type": "string", "minLength": 1}, "testflight": {"type": "string", "minLength": 1}}},
+        "image_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+        "runnable_manifest_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+        "provenance": {"$ref": "trusted-artifact.schema.json"},
+        "sbom": {"$ref": "trusted-artifact.schema.json"},
+        "vulnerability_scan": {"$ref": "trusted-artifact.schema.json"},
+        "secret_scan": {"$ref": "trusted-artifact.schema.json"}
+      }
+    },
+    "environments": {
+      "type": "object", "additionalProperties": false,
+      "required": ["production", "testflight"],
+      "properties": {
+        "production": {"$ref": "#/$defs/environment"},
+        "testflight": {"$ref": "#/$defs/environment"}
+      }
+    },
+    "device_runs": {
+      "type": "array", "minItems": 96, "uniqueItems": true,
+      "items": {"$ref": "trusted-artifact.schema.json"}
+    }
+  },
+  "$defs": {
+    "environment": {
+      "type": "object", "additionalProperties": false,
+      "required": ["policy", "terraform_plan", "deployment_receipt"],
+      "properties": {
+        "policy": {"$ref": "trusted-artifact.schema.json"},
+        "terraform_plan": {"$ref": "trusted-artifact.schema.json"},
+        "deployment_receipt": {"$ref": "trusted-artifact.schema.json"}
+      }
+    }
+  }
+}

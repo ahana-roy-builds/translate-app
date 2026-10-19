@@ -1,0 +1,108 @@
+name: LocalLingo
+options:
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+configs:
+  Debug: debug
+  Staging: release
+  PrivateBeta: release
+  TestFlight: release
+  Release: release
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    CODE_SIGN_STYLE: Automatic
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: 0.1.0
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    GENERATE_INFOPLIST_FILE: NO
+    SUPPORTS_MACCATALYST: NO
+    TARGETED_DEVICE_FAMILY: "1"
+targets:
+  LocalLingo:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      - path: Resources
+        buildPhase: resources
+    configFiles:
+      Debug: Config/Debug.xcconfig
+      Staging: Config/Staging.xcconfig
+      PrivateBeta: Config/PrivateBeta.xcconfig
+      TestFlight: Config/TestFlight.xcconfig
+      Release: Config/Release.xcconfig
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(APP_BUNDLE_IDENTIFIER)
+        INFOPLIST_FILE: Config/Info.plist
+        PRODUCT_NAME: LocalLingo
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        SUPPORTED_PLATFORMS: "iphoneos iphonesimulator"
+      configs:
+        Debug:
+          CODE_SIGN_ENTITLEMENTS: Config/LocalLingo.Debug.entitlements
+          EXCLUDED_SOURCE_FILE_NAMES: "$(inherited) $(SRCROOT)/Resources/Online/PrivacyInfo.xcprivacy"
+        Staging:
+          CODE_SIGN_ENTITLEMENTS: Config/LocalLingo.Staging.entitlements
+          EXCLUDED_SOURCE_FILE_NAMES: "$(inherited) $(SRCROOT)/Resources/PrivateBeta/PrivacyInfo.xcprivacy"
+        PrivateBeta:
+          CODE_SIGN_ENTITLEMENTS: Config/LocalLingo.PrivateBeta.entitlements
+          EXCLUDED_SOURCE_FILE_NAMES: "$(inherited) $(SRCROOT)/Resources/Online/PrivacyInfo.xcprivacy"
+        TestFlight:
+          CODE_SIGN_ENTITLEMENTS: Config/LocalLingo.TestFlight.entitlements
+          EXCLUDED_SOURCE_FILE_NAMES: "$(inherited) $(SRCROOT)/Resources/PrivateBeta/PrivacyInfo.xcprivacy"
+        Release:
+          CODE_SIGN_ENTITLEMENTS: Config/LocalLingo.Release.entitlements
+          EXCLUDED_SOURCE_FILE_NAMES: "$(inherited) $(SRCROOT)/Resources/PrivateBeta/PrivacyInfo.xcprivacy"
+    preBuildScripts:
+      - name: Deployment configuration preflight
+        basedOnDependencyAnalysis: false
+        inputFiles:
+          - $(SRCROOT)/../scripts/validate-ios-release-config.py
+          - $(SRCROOT)/Config/Info.plist
+          - $(SRCROOT)/Resources/Online/PrivacyInfo.xcprivacy
+          - $(SRCROOT)/Resources/PrivateBeta/PrivacyInfo.xcprivacy
+          - $(SRCROOT)/Resources/Assets.xcassets/AppIcon.appiconset/Contents.json
+          - $(SRCROOT)/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png
+        script: |
+          if [ "$CONFIGURATION" = "Release" ] || [ "$CONFIGURATION" = "TestFlight" ] || [ "$CONFIGURATION" = "PrivateBeta" ] || [ "$CONFIGURATION" = "Staging" ]; then
+            python3 "$SRCROOT/../scripts/validate-ios-release-config.py" --build-environment --configuration "$CONFIGURATION"
+          fi
+    scheme:
+      testTargets:
+        - LocalLingoTests
+      storeKitConfiguration: Config/LocalLingo.storekit
+  LocalLingoTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: LocalLingo
+    configFiles:
+      Debug: Config/Debug.xcconfig
+      Staging: Config/Staging.xcconfig
+      PrivateBeta: Config/PrivateBeta.xcconfig
+      TestFlight: Config/TestFlight.xcconfig
+      Release: Config/Release.xcconfig
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(APP_BUNDLE_IDENTIFIER).tests
+        GENERATE_INFOPLIST_FILE: YES
+        TARGETED_DEVICE_FAMILY: "1"
+
+schemes:
+  LocalLingo Private Beta:
+    build:
+      targets:
+        LocalLingo: all
+    run:
+      config: PrivateBeta
+    profile:
+      config: PrivateBeta
+    analyze:
+      config: PrivateBeta
+    archive:
+      config: PrivateBeta

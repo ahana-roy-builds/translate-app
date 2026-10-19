@@ -1,0 +1,10 @@
+{
+  "channelCount" : 1,
+  "commonFormat" : "AVAudioCommonFormat(rawValue: 3)",
+  "finalStatus" : "installed",
+  "initialStatus" : "supported-not-installed",
+  "installedLocale" : "hi_IN",
+  "installedLocaleBCP47" : "hi-IN",
+  "requestedInstallation" : true,
+  "sampleRate" : 16000
+}

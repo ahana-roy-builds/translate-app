@@ -1,0 +1,27 @@
+#include "Base.xcconfig"
+
+// This distribution build intentionally exposes only the on-device product.
+// Supply its Apple identity through the ignored local override.
+APP_BUNDLE_IDENTIFIER = REPLACE_PRIVATE_BETA_BUNDLE_ID
+DEVELOPMENT_TEAM = REPLACE_TEAM_ID
+APP_RUNTIME_ENVIRONMENT = private-beta
+RELEASE_BUILD_ID = REPLACE_PRIVATE_BETA_RELEASE_BUILD_ID
+
+// PrivateBeta does not construct the online client or start StoreKit. A public
+// privacy policy is still required for App Store Connect and the in-app link.
+API_BASE_URL =
+STOREKIT_MONTHLY_PRODUCT_ID =
+STOREKIT_ANNUAL_PRODUCT_ID =
+PRIVACY_POLICY_URL = https:/$()/REPLACE_PRIVATE_BETA_PRIVACY_POLICY_URL
+TERMS_URL =
+SUPPORT_URL =
+
+LOCAL_LLM_EXPERIMENT = 0
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) PRIVATE_BETA
+
+#include? "PrivateBeta.local.xcconfig"
+
+// Local signing overrides cannot enable deferred product surfaces.
+ONLINE_FEATURES_ENABLED = NO
+FACE_TO_FACE_ENABLED = NO
+LOCAL_LLM_EXPERIMENT = 0

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key><string>en</string>
+    <key>CFBundleDisplayName</key><string>LocalLingo</string>
+    <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+    <key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
+    <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
+    <key>LSRequiresIPhoneOS</key><true/>
+    <key>NSMicrophoneUsageDescription</key><string>$(MICROPHONE_USAGE_DESCRIPTION)</string>
+    <key>NSSpeechRecognitionUsageDescription</key><string>LocalLingo converts speech into text on this device so it can translate your conversation.</string>
+    <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
+    <key>UILaunchScreen</key><dict/>
+    <key>UISupportedInterfaceOrientations</key>
+    <array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
+    <key>API_BASE_URL</key><string>$(API_BASE_URL)</string>
+    <key>APP_RUNTIME_ENVIRONMENT</key><string>$(APP_RUNTIME_ENVIRONMENT)</string>
+    <key>RELEASE_BUILD_ID</key><string>$(RELEASE_BUILD_ID)</string>
+    <key>ONLINE_FEATURES_ENABLED</key><string>$(ONLINE_FEATURES_ENABLED)</string>
+    <key>FACE_TO_FACE_ENABLED</key><string>$(FACE_TO_FACE_ENABLED)</string>
+    <key>STOREKIT_MONTHLY_PRODUCT_ID</key><string>$(STOREKIT_MONTHLY_PRODUCT_ID)</string>
+    <key>STOREKIT_ANNUAL_PRODUCT_ID</key><string>$(STOREKIT_ANNUAL_PRODUCT_ID)</string>
+    <key>PRIVACY_POLICY_URL</key><string>$(PRIVACY_POLICY_URL)</string>
+    <key>TERMS_URL</key><string>$(TERMS_URL)</string>
+    <key>SUPPORT_URL</key><string>$(SUPPORT_URL)</string>
+    <key>ITSAppUsesNonExemptEncryption</key><false/>
+</dict>
+</plist>

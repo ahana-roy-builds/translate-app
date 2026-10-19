@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:locallingo:schema:attestation-predicates:v1",
+  "title": "LocalLingo trusted release predicate contracts",
+  "oneOf": [
+    {"$ref": "#/$defs/iosBuild"},
+    {"$ref": "#/$defs/environmentPolicy"},
+    {"$ref": "#/$defs/terraformPlan"},
+    {"$ref": "#/$defs/deploymentReceipt"},
+    {"$ref": "#/$defs/corpusManifest"},
+    {"$ref": "#/$defs/deviceRun"},
+    {"$ref": "#/$defs/preflight"},
+    {"$ref": "#/$defs/criteria"},
+    {"$ref": "#/$defs/backendProvenance"},
+    {"$ref": "#/$defs/backendSbom"},
+    {"$ref": "#/$defs/scanReport"}
+    ,{"$ref": "device-tier-registry.schema.json"}
+  ],
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "commit": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
+    "time": {"type": "string", "format": "date-time"},
+    "artifact": {"$ref": "trusted-artifact.schema.json#/$defs/artifact"},
+    "iosBuild": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "schema_version", "configuration", "source_commit", "source_tree", "archive", "ipa", "executable_sha256", "code_directory_hash", "bundle_id", "app_version", "build_number", "embedded_build_id", "entitlements_sha256", "provisioning_profile_sha256", "provisioning_profile_uuid", "team_id", "application_identifier", "signing_certificate_sha256", "xcode_version", "sdk_version", "resolved_config_sha256", "generated_at"],
+      "properties": {
+        "kind": {"const": "ios-build"}, "schema_version": {"const": "1.0"},
+        "configuration": {"enum": ["Release", "TestFlight"]}, "source_commit": {"$ref": "#/$defs/commit"}, "source_tree": {"type": "string", "pattern": "^[a-f0-9]{40,64}$"},
+        "archive": {"$ref": "#/$defs/artifact"}, "ipa": {"$ref": "#/$defs/artifact"},
+        "executable_sha256": {"$ref": "#/$defs/sha"}, "code_directory_hash": {"type": "string", "pattern": "^[A-Fa-f0-9]{40,64}$"},
+        "bundle_id": {"type": "string", "pattern": "^[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+$"}, "app_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}, "build_number": {"type": "string", "pattern": "^[1-9][0-9]*$"}, "embedded_build_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{16,128}$"},
+        "entitlements_sha256": {"$ref": "#/$defs/sha"}, "provisioning_profile_sha256": {"$ref": "#/$defs/sha"}, "provisioning_profile_uuid": {"type": "string", "minLength": 1}, "team_id": {"type": "string", "pattern": "^[A-Z0-9]{10}$"}, "application_identifier": {"type": "string", "minLength": 12}, "signing_certificate_sha256": {"$ref": "#/$defs/sha"},
+        "xcode_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+(?:\\.[0-9]+)?$"}, "sdk_version": {"type": "string", "minLength": 1}, "resolved_config_sha256": {"$ref": "#/$defs/sha"}, "generated_at": {"$ref": "#/$defs/time"}
+      }
+    },
+    "environmentPolicy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "schema_version", "environment", "project_id", "project_number", "region", "state_bucket", "state_prefix", "registry_repository", "api_domain", "cloud_run_service", "runtime_service_account_email", "runtime_service_account_unique_id", "firestore_database", "firestore_location", "environment_variables", "secret_bindings", "environment_sha256", "secret_bindings_sha256", "bootstrap_outputs_sha256", "iam_policy_sha256", "generated_at"],
+      "properties": {
+        "kind": {"const": "environment-policy"}, "schema_version": {"const": "1.0"}, "environment": {"enum": ["production", "testflight"]},
+        "project_id": {"type": "string", "minLength": 6}, "project_number": {"type": "string", "pattern": "^[0-9]+$"}, "region": {"const": "us-central1"}, "state_bucket": {"type": "string", "minLength": 3}, "state_prefix": {"type": "string", "minLength": 1}, "registry_repository": {"type": "string", "minLength": 1}, "api_domain": {"type": "string", "minLength": 1}, "cloud_run_service": {"type": "string", "minLength": 1}, "runtime_service_account_email": {"type": "string", "pattern": "^[^@]+@[^@]+\\.iam\\.gserviceaccount\\.com$"}, "runtime_service_account_unique_id": {"type": "string", "pattern": "^[0-9]+$"}, "firestore_database": {"type": "string", "minLength": 1}, "firestore_location": {"const": "us-central1"},
+        "environment_variables": {"type": "object", "additionalProperties": {"type": "string"}}, "secret_bindings": {"type": "object", "additionalProperties": {"type": "object", "additionalProperties": false, "required": ["resource", "version", "value_sha256"], "properties": {"resource": {"type": "string", "minLength": 1}, "version": {"type": "string", "pattern": "^[1-9][0-9]*$"}, "value_sha256": {"$ref": "#/$defs/sha"}}}},
+        "environment_sha256": {"$ref": "#/$defs/sha"}, "secret_bindings_sha256": {"$ref": "#/$defs/sha"}, "bootstrap_outputs_sha256": {"$ref": "#/$defs/sha"}, "iam_policy_sha256": {"$ref": "#/$defs/sha"}, "generated_at": {"$ref": "#/$defs/time"}
+      }
+    },
+    "terraformPlan": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "schema_version", "environment", "source_commit", "source_tree", "terraform_version", "provider_lock_sha256", "configuration_sha256", "backend_config_sha256", "variables_sha256", "binary_plan_sha256", "plan_json_sha256", "v1_plan_provenance", "image_name", "image_digest", "runnable_manifest_digest", "state_bucket", "state_prefix", "state_lineage", "state_serial", "state_object_generation", "state_sha256", "environment_policy_sha256", "project_id", "region", "nonce", "generated_at"],
+      "properties": {
+        "kind": {"const": "terraform-plan"}, "schema_version": {"const": "2.0"}, "environment": {"enum": ["production", "testflight"]}, "source_commit": {"$ref": "#/$defs/commit"}, "source_tree": {"type": "string", "pattern": "^[a-f0-9]{40,64}$"}, "terraform_version": {"const": "1.15.7"},
+        "provider_lock_sha256": {"$ref": "#/$defs/sha"}, "configuration_sha256": {"$ref": "#/$defs/sha"}, "backend_config_sha256": {"$ref": "#/$defs/sha"}, "variables_sha256": {"$ref": "#/$defs/sha"}, "binary_plan_sha256": {"$ref": "#/$defs/sha"}, "plan_json_sha256": {"$ref": "#/$defs/sha"}, "v1_plan_provenance": {"$ref": "#/$defs/artifact"}, "image_name": {"type": "string", "minLength": 1}, "image_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}, "runnable_manifest_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}, "state_bucket": {"type": "string", "minLength": 3}, "state_prefix": {"type": "string", "minLength": 1}, "state_lineage": {"type": "string", "minLength": 8}, "state_serial": {"type": "integer", "minimum": 0}, "state_object_generation": {"type": "string", "pattern": "^[0-9]+$"}, "state_sha256": {"$ref": "#/$defs/sha"}, "environment_policy_sha256": {"$ref": "#/$defs/sha"}, "project_id": {"type": "string", "minLength": 6}, "region": {"const": "us-central1"}, "nonce": {"type": "string", "pattern": "^[A-Za-z0-9_-]{32,128}$"}, "generated_at": {"$ref": "#/$defs/time"}
+      }
+    },
+    "deploymentReceipt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "schema_version", "environment", "plan_sha256", "environment_policy_sha256", "release_build_id", "cloud_run_revision", "image_digest", "traffic_percent", "runtime_service_account_unique_id", "iam_sha256", "firestore_sha256", "secret_bindings_sha256", "load_balancer_sha256", "api_domain", "registry_manifest", "control_plane", "availability", "observed_at"],
+      "properties": {
+        "kind": {"const": "deployment-receipt"}, "schema_version": {"const": "1.0"}, "environment": {"enum": ["production", "testflight"]}, "plan_sha256": {"$ref": "#/$defs/sha"}, "environment_policy_sha256": {"$ref": "#/$defs/sha"}, "release_build_id": {"type": "string", "minLength": 16}, "cloud_run_revision": {"type": "string", "minLength": 1}, "image_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}, "traffic_percent": {"const": 100}, "runtime_service_account_unique_id": {"type": "string", "pattern": "^[0-9]+$"}, "iam_sha256": {"$ref": "#/$defs/sha"}, "firestore_sha256": {"$ref": "#/$defs/sha"}, "secret_bindings_sha256": {"$ref": "#/$defs/sha"}, "load_balancer_sha256": {"$ref": "#/$defs/sha"}, "api_domain": {"type": "string", "minLength": 1}, "registry_manifest": {"$ref": "#/$defs/artifact"}, "control_plane": {"$ref": "#/$defs/artifact"}, "availability": {"$ref": "#/$defs/artifact"}, "observed_at": {"$ref": "#/$defs/time"}
+      }
+    },
+    "corpusManifest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "schema_version", "corpus_id", "cases_sha256", "direction_corpora", "stimuli_sha256", "answers_sha256", "rights_manifest_sha256", "audio_validation_sha256", "vad_tool_digest", "fingerprint_tool_digest", "directions", "generated_at"],
+      "properties": {
+        "kind": {"const": "corpus-manifest"}, "schema_version": {"const": "2.0"}, "corpus_id": {"type": "string", "minLength": 16}, "cases_sha256": {"$ref": "#/$defs/sha"}, "direction_corpora": {"type": "object", "additionalProperties": false, "required": ["en->es", "es->en", "en->ja", "ja->en"], "properties": {"en->es": {"$ref": "#/$defs/sha"}, "es->en": {"$ref": "#/$defs/sha"}, "en->ja": {"$ref": "#/$defs/sha"}, "ja->en": {"$ref": "#/$defs/sha"}}}, "stimuli_sha256": {"$ref": "#/$defs/sha"}, "answers_sha256": {"$ref": "#/$defs/sha"}, "rights_manifest_sha256": {"$ref": "#/$defs/sha"}, "audio_validation_sha256": {"$ref": "#/$defs/sha"}, "vad_tool_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}, "fingerprint_tool_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}, "directions": {"type": "array", "minItems": 4, "maxItems": 4, "uniqueItems": true, "items": {"enum": ["en->es", "es->en", "en->ja", "ja->en"]}}, "generated_at": {"$ref": "#/$defs/time"}
+      }
+    },
+    "deviceRun": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "schema_version", "run_id", "nonce", "candidate_id", "corpus_sha256", "v1_corpus_sha256", "v1_run_identity_sha256", "v1_automated_report_sha256", "direction", "route", "device_tier", "environment", "device_registry_sha256", "device_identifier", "device_udid_sha256", "os_version", "os_build", "app_build_id", "ios_build_attestation_sha256", "backend_image_digest", "backend_revision", "api_domain", "app_attest_request_id", "outputs", "timings", "trace", "started_at", "completed_at"],
+      "properties": {
+        "kind": {"const": "device-run"}, "schema_version": {"const": "2.0"}, "run_id": {"type": "string", "minLength": 16}, "nonce": {"type": "string", "pattern": "^[A-Za-z0-9_-]{32,128}$"}, "candidate_id": {"type": "string", "minLength": 16}, "corpus_sha256": {"$ref": "#/$defs/sha"}, "v1_corpus_sha256": {"$ref": "#/$defs/sha"}, "v1_run_identity_sha256": {"$ref": "#/$defs/sha"}, "v1_automated_report_sha256": {"$ref": "#/$defs/sha"}, "direction": {"enum": ["en->es", "es->en", "en->ja", "ja->en"]}, "route": {"enum": ["local_only", "online_quality", "auto_local", "auto_online"]}, "device_tier": {"enum": ["minimum", "mid_tier", "current"]}, "environment": {"enum": ["production", "testflight"]}, "device_registry_sha256": {"$ref": "#/$defs/sha"}, "device_identifier": {"type": "string", "pattern": "^iPhone[0-9]+,[0-9]+$"}, "device_udid_sha256": {"$ref": "#/$defs/sha"}, "os_version": {"type": "string", "minLength": 3}, "os_build": {"type": "string", "minLength": 1}, "app_build_id": {"type": "string", "minLength": 16}, "ios_build_attestation_sha256": {"$ref": "#/$defs/sha"}, "backend_image_digest": {"anyOf": [{"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}, {"type": "null"}]}, "backend_revision": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]}, "api_domain": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]}, "app_attest_request_id": {"anyOf": [{"type": "string", "minLength": 8}, {"type": "null"}]}, "outputs": {"$ref": "#/$defs/artifact"}, "timings": {"$ref": "#/$defs/artifact"}, "trace": {"$ref": "#/$defs/artifact"}, "started_at": {"$ref": "#/$defs/time"}, "completed_at": {"$ref": "#/$defs/time"}
+      }
+    },
+    "preflight": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "schema_version", "candidate_id", "source_commit", "source_tree", "report", "release_manifest", "resolved_ios_config", "testflight_resolved_ios_config", "status", "release_decision", "generated_at"],
+      "properties": {"kind": {"const": "preflight"}, "schema_version": {"const": "2.0"}, "candidate_id": {"type": "string", "minLength": 16}, "source_commit": {"$ref": "#/$defs/commit"}, "source_tree": {"type": "string", "pattern": "^[a-f0-9]{40,64}$"}, "report": {"$ref": "#/$defs/artifact"}, "release_manifest": {"$ref": "#/$defs/artifact"}, "resolved_ios_config": {"$ref": "#/$defs/artifact"}, "testflight_resolved_ios_config": {"$ref": "#/$defs/artifact"}, "status": {"const": "passed"}, "release_decision": {"const": false}, "generated_at": {"$ref": "#/$defs/time"}}
+    },
+    "criteria": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "schema_version", "source_commit", "criteria", "generated_at"],
+      "properties": {"kind": {"const": "criteria"}, "schema_version": {"const": "2.0"}, "source_commit": {"$ref": "#/$defs/commit"}, "criteria": {"$ref": "#/$defs/artifact"}, "generated_at": {"$ref": "#/$defs/time"}}
+    },
+    "backendProvenance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "schema_version", "source_commit", "source_tree", "image_name", "image_digest", "runnable_manifest_digest", "base_image_digest", "v1_build_metadata", "build_context_sha256", "dockerfile_sha256", "builder_id", "generated_at"],
+      "properties": {"kind": {"const": "backend-provenance"}, "schema_version": {"const": "1.0"}, "source_commit": {"$ref": "#/$defs/commit"}, "source_tree": {"type": "string", "pattern": "^[a-f0-9]{40,64}$"}, "image_name": {"type": "string", "minLength": 1}, "image_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}, "runnable_manifest_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}, "base_image_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}, "v1_build_metadata": {"$ref": "#/$defs/artifact"}, "build_context_sha256": {"$ref": "#/$defs/sha"}, "dockerfile_sha256": {"$ref": "#/$defs/sha"}, "builder_id": {"type": "string", "minLength": 1}, "generated_at": {"$ref": "#/$defs/time"}}
+    },
+    "backendSbom": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "schema_version", "image_digest", "document", "format", "generator_digest", "generated_at"],
+      "properties": {"kind": {"const": "backend-sbom"}, "schema_version": {"const": "1.0"}, "image_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}, "document": {"$ref": "#/$defs/artifact"}, "format": {"enum": ["SPDX-2.3", "CycloneDX-1.5"]}, "generator_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}, "generated_at": {"$ref": "#/$defs/time"}}
+    },
+    "scanReport": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "schema_version", "image_digest", "report", "scanner_digest", "database_digest", "policy_sha256", "status", "generated_at"],
+      "properties": {"kind": {"enum": ["vulnerability-scan", "secret-scan"]}, "schema_version": {"const": "1.0"}, "image_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}, "report": {"$ref": "#/$defs/artifact"}, "scanner_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}, "database_digest": {"anyOf": [{"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}, {"type": "null"}]}, "policy_sha256": {"$ref": "#/$defs/sha"}, "status": {"const": "passed"}, "generated_at": {"$ref": "#/$defs/time"}}
+    }
+  }
+}

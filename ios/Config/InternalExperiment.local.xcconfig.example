@@ -1,0 +1,6 @@
+// Internal research only. Copy to InternalExperiment.local.xcconfig. This merely
+// compiles the guarded seam; a reviewed MLX package/adapter must still be added
+// to a separate internal project before the experiment can run.
+LOCAL_LLM_EXPERIMENT = 1
+LOCAL_LLM_COMPILATION_CONDITION = LOCAL_LLM_EXPERIMENT
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) $(LOCAL_LLM_COMPILATION_CONDITION)

@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "REPLACE_WITH_CAPTURE_TIMESTAMP",
+  "tiers": {
+    "minimum": {
+      "marketing_name": "iPhone 15 Pro",
+      "model_identifier": "iPhone16,1",
+      "soc": "A17 Pro",
+      "memory_gib": 8,
+      "os_version": "REPLACE_WITH_OS_VERSION",
+      "os_build": "REPLACE_WITH_OS_BUILD"
+    },
+    "mid_tier": {
+      "marketing_name": "iPhone 16 Pro",
+      "model_identifier": "iPhone17,1",
+      "soc": "A18 Pro",
+      "memory_gib": 8,
+      "os_version": "REPLACE_WITH_OS_VERSION",
+      "os_build": "REPLACE_WITH_OS_BUILD"
+    },
+    "current": {
+      "marketing_name": "iPhone 17 Pro",
+      "model_identifier": "iPhone18,1",
+      "soc": "A19 Pro",
+      "memory_gib": 12,
+      "os_version": "REPLACE_WITH_OS_VERSION",
+      "os_build": "REPLACE_WITH_OS_BUILD"
+    }
+  }
+}

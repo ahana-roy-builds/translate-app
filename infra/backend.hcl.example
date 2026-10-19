@@ -1,0 +1,4 @@
+# Copy outside the repository and use a distinct prefix for each environment and
+# stack. Authentication uses short-lived ADC/workload identity, never this file.
+bucket = "REPLACE_WITH_VERSIONED_TERRAFORM_STATE_BUCKET"
+prefix = "REPLACE_WITH_ENVIRONMENT/REPLACE_WITH_STACK"

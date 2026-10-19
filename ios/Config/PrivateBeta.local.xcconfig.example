@@ -1,0 +1,11 @@
+// Copy to the ignored PrivateBeta.local.xcconfig for private TestFlight builds.
+// Use the final production bundle ID when this beta will graduate under the
+// same App Store listing. Add a beta suffix only for an intentionally separate app.
+APP_BUNDLE_IDENTIFIER = org.REPLACE.locallingo
+DEVELOPMENT_TEAM = REPLACE1234
+MARKETING_VERSION = 0.1.0
+CURRENT_PROJECT_VERSION = 1
+
+// Change this immutable identifier for each candidate archive.
+RELEASE_BUILD_ID = private-beta-build-00000001
+PRIVACY_POLICY_URL = https:/$()/REPLACE.tld/locallingo/privacy

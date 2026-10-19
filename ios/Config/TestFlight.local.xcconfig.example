@@ -1,0 +1,13 @@
+// Copy to the ignored TestFlight.local.xcconfig in the TestFlight signing job.
+APP_BUNDLE_IDENTIFIER = org.REPLACE.locallingo.testflight
+DEVELOPMENT_TEAM = REPLACE1234
+APP_ATTEST_ENVIRONMENT = production
+APP_RUNTIME_ENVIRONMENT = testflight
+RELEASE_BUILD_ID = REPLACE_RELEASE_BUILD_ID
+API_BASE_URL = https:/$()/testflight-api.REPLACE.tld
+STOREKIT_MONTHLY_PRODUCT_ID = org.REPLACE.locallingo.testflight.pro.monthly
+STOREKIT_ANNUAL_PRODUCT_ID = org.REPLACE.locallingo.testflight.pro.annual
+PRIVACY_POLICY_URL = https:/$()/REPLACE.tld/privacy
+TERMS_URL = https:/$()/REPLACE.tld/terms
+SUPPORT_URL = https:/$()/REPLACE.tld/support
+LOCAL_LLM_EXPERIMENT = 0

@@ -1,0 +1,14 @@
+// Copy to Release.local.xcconfig in a secure release workspace. Do not commit
+// the concrete file. The unusual $() keeps // from starting an xcconfig comment.
+APP_BUNDLE_IDENTIFIER = org.REPLACE.locallingo
+DEVELOPMENT_TEAM = REPLACE1234
+APP_ATTEST_ENVIRONMENT = production
+APP_RUNTIME_ENVIRONMENT = production
+RELEASE_BUILD_ID = REPLACE_RELEASE_BUILD_ID
+API_BASE_URL = https:/$()/api.REPLACE.tld
+STOREKIT_MONTHLY_PRODUCT_ID = org.REPLACE.locallingo.pro.monthly
+STOREKIT_ANNUAL_PRODUCT_ID = org.REPLACE.locallingo.pro.annual
+PRIVACY_POLICY_URL = https:/$()/REPLACE.tld/privacy
+TERMS_URL = https:/$()/REPLACE.tld/terms
+SUPPORT_URL = https:/$()/REPLACE.tld/support
+LOCAL_LLM_EXPERIMENT = 0

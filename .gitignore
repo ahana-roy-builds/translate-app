@@ -1,0 +1,49 @@
+# macOS / Xcode
+.DS_Store
+DerivedData/
+*.xcuserstate
+xcuserdata/
+ios/LocalLingo.xcodeproj/
+*.moved-aside
+*.xccheckout
+*.xcscmblueprint
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Node / TypeScript
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.p8
+*.p12
+*.mobileprovision
+GoogleService-Info.plist
+ios/Config/*.local.xcconfig
+
+# Terraform
+.terraform/
+*.tfvars
+!*.tfvars.example
+*.tfstate
+*.tfstate.*
+*.tfplan
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Test and evaluation output
+evaluation/results/
+ios/Tests/Resources/hindi-dictation-fixture.wav
+__pycache__/
+*.py[cod]
+tmp/
+*.log

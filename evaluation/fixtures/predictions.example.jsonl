@@ -1,0 +1,20 @@
+{"id":"en-es-transit-001","prediction":"¿El autobús número 27 para cerca del mercado central?","latency_ms":480,"model_build":"fixture-reference-1","device":"fixture-device","processing_mode":"local_only"}
+{"id":"es-en-transit-001","prediction":"Does the last train leave at 23:15?","latency_ms":720,"model_build":"fixture-reference-1","device":"fixture-device","processing_mode":"online_quality"}
+{"id":"en-es-lodging-001","prediction":"Reservé dos noches a nombre de Maya Rao.","latency_ms":510,"model_build":"fixture-reference-1","device":"fixture-device","processing_mode":"auto_local"}
+{"id":"es-en-lodging-001","prediction":"The room does not have hot water.","latency_ms":760,"model_build":"fixture-reference-1","device":"fixture-device","processing_mode":"auto_online"}
+{"id":"en-es-dining-001","prediction":"Tengo alergia a los cacahuetes; por favor, no añada aceite de cacahuete.","latency_ms":530,"model_build":"fixture-reference-1","device":"fixture-device","processing_mode":"local_only"}
+{"id":"es-en-dining-001","prediction":"Does this dish contain milk or eggs?","latency_ms":690,"model_build":"fixture-reference-1","device":"fixture-device","processing_mode":"online_quality"}
+{"id":"en-es-directions-001","prediction":"Muéstreme la ruta a pie más segura hasta el número 18 de la calle Luna.","latency_ms":550,"model_build":"fixture-reference-1","device":"fixture-device","processing_mode":"auto_local"}
+{"id":"es-en-directions-001","prediction":"Turn left after the pharmacy, not before it.","latency_ms":810,"model_build":"fixture-reference-1","device":"fixture-device","processing_mode":"auto_online"}
+{"id":"en-es-payments-001","prediction":"El total debería ser 43,80 euros, no 48,30.","latency_ms":570,"model_build":"fixture-reference-1","device":"fixture-device","processing_mode":"local_only"}
+{"id":"es-en-payments-001","prediction":"I need a receipt, but I do not want to exchange money.","latency_ms":740,"model_build":"fixture-reference-1","device":"fixture-device","processing_mode":"online_quality"}
+{"id":"en-es-emergency-001","prediction":"Llame a los servicios de emergencia. Mi amigo está consciente, pero no puede ponerse de pie.","latency_ms":590,"model_build":"fixture-reference-1","device":"fixture-device","processing_mode":"auto_local"}
+{"id":"es-en-emergency-001","prediction":"I lost my passport; my wallet was not stolen.","latency_ms":850,"model_build":"fixture-reference-1","device":"fixture-device","processing_mode":"auto_online"}
+{"id":"en-es-health-001","prediction":"Tomo 5 miligramos de este medicamento todas las mañanas.","latency_ms":610,"model_build":"fixture-reference-1","device":"fixture-device","processing_mode":"local_only"}
+{"id":"es-en-health-001","prediction":"The pain started yesterday, but it is milder now.","latency_ms":770,"model_build":"fixture-reference-1","device":"fixture-device","processing_mode":"online_quality"}
+{"id":"en-es-social-001","prediction":"¿Podría hablar más despacio, por favor?","latency_ms":500,"model_build":"fixture-reference-1","device":"fixture-device","processing_mode":"auto_local"}
+{"id":"es-en-social-001","prediction":"I understand a little, but I need you to repeat that.","latency_ms":790,"model_build":"fixture-reference-1","device":"fixture-device","processing_mode":"auto_online"}
+{"id":"en-es-lodging-002","prediction":"¿Está incluido el desayuno para tres huéspedes de lunes a miércoles?","latency_ms":520,"model_build":"fixture-reference-1","device":"fixture-device","processing_mode":"local_only"}
+{"id":"es-en-logistics-001","prediction":"The exit is through door B, next to the elevator.","latency_ms":710,"model_build":"fixture-reference-1","device":"fixture-device","processing_mode":"online_quality"}
+{"id":"en-es-shopping-001","prediction":"Solo quiero una bufanda roja; no quiero la azul.","latency_ms":540,"model_build":"fixture-reference-1","device":"fixture-device","processing_mode":"auto_local"}
+{"id":"es-en-logistics-002","prediction":"Can you store my backpack until 16:00 at no charge?","latency_ms":820,"model_build":"fixture-reference-1","device":"fixture-device","processing_mode":"auto_online"}

@@ -1,0 +1,68 @@
+project_id                    = "replace-with-gcp-project"
+region                        = "us-central1"
+environment                   = "production"
+service_name                  = "locallingo-api"
+runtime_service_account_email = "locallingo-api-runtime@replace-with-gcp-project.iam.gserviceaccount.com"
+runtime_service_account_unique_id = "REPLACE_NUMERIC_SERVICE_ACCOUNT_UNIQUE_ID"
+container_image               = "us-central1-docker.pkg.dev/replace-with-gcp-project/locallingo/api@sha256:REPLACE_WITH_64_HEX_CHARACTERS"
+release_build_id              = "REPLACE_RELEASE_BUILD_ID"
+api_domain                    = "api.replace-with-real-domain.invalid"
+firestore_database            = "(default)"
+
+secret_env = {
+  APPLE_APP_ATTEST_ROOT_CA_PEM = { secret_id = "apple-app-attest-root-ca-pem", version = "1" }
+  APPLE_IAP_SIGNING_KEY_P8     = { secret_id = "apple-iap-signing-key-p8", version = "1" }
+  APPLE_STOREKIT_ROOT_CA_PEMS  = { secret_id = "apple-storekit-root-ca-pems", version = "1" }
+}
+
+non_sensitive_env = {
+  GOOGLE_CLOUD_PROJECT        = "replace-with-gcp-project"
+  GOOGLE_STT_LOCATION         = "us"
+  GOOGLE_TRANSLATION_LOCATION = "us-central1"
+  FIRESTORE_PROJECT           = "replace-with-gcp-project"
+  FIRESTORE_DATABASE          = "(default)"
+  RUNTIME_MODE                = "production"
+  ONLINE_ENABLED              = "true"
+  APP_ATTEST_ENVIRONMENT      = "production"
+  APPLE_APP_ID_PREFIX         = "REPLACE_APP_ID_PREFIX"
+  APPLE_APP_STORE_ID          = "REPLACE_NUMERIC_APP_STORE_ID"
+  APPLE_TEAM_ID               = "REPLACE_TEAM_ID"
+  APPLE_BUNDLE_ID             = "REPLACE_BUNDLE_ID"
+  APPLE_STOREKIT_ENVIRONMENT  = "Production"
+  ALLOWED_PRODUCT_IDS         = "REPLACE_MONTHLY_PRODUCT_ID,REPLACE_ANNUAL_PRODUCT_ID"
+  ALLOWED_APP_BUNDLE_VERSIONS = "REPLACE_NUMERIC_BUILD_VERSION"
+  APPLE_IAP_KEY_ID             = "REPLACE_KEY"
+  APPLE_IAP_ISSUER_ID          = "REPLACE_ISSUER_UUID"
+  CHALLENGE_POOL_SIZE         = "8"
+  CHALLENGE_POOL_REQUESTS_PER_MINUTE = "4"
+  CHALLENGE_TTL_MS            = "120000"
+  SESSION_TTL_MS              = "900000"
+  SESSION_ATTEMPTS_PER_MINUTE = "6"
+  MAX_AUDIO_BYTES             = "960044"
+  MAX_TEXT_BYTES              = "8192"
+  REQUEST_DEADLINE_MS         = "18000"
+  SPEECH_TIMEOUT_MS           = "10000"
+  TRANSLATION_TIMEOUT_MS      = "5000"
+  STOREKIT_SESSION_CONCURRENCY = "2"
+  STOREKIT_SESSION_MAXIMUM_OUTSTANDING = "6"
+  STOREKIT_NOTIFICATION_CONCURRENCY = "1"
+  STOREKIT_NOTIFICATION_MAXIMUM_OUTSTANDING = "2"
+  INSTALLATION_RATE_PER_MINUTE = "30"
+  ENTITLEMENT_RATE_PER_MINUTE  = "60"
+  ENTITLEMENT_RATE_PER_DAY     = "500"
+  MAXIMUM_SUBSCRIPTION_DEVICES = "3"
+  INACTIVE_DEVICE_AFTER_MS     = "2592000000"
+}
+
+min_instances       = 1
+max_instances       = 3
+deletion_protection = true
+
+# Existing channels and billing account are required by the production preflight.
+notification_channels = ["projects/replace-with-gcp-project/notificationChannels/REPLACE"]
+billing_account_id    = "REPLACE-BILLING-ACCOUNT"
+monthly_budget_usd    = 100
+
+labels = {
+  owner = "mobile-team"
+}

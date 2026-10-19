@@ -1,0 +1,45 @@
+name: release-role-approval-attestation
+
+on:
+  workflow_dispatch:
+    inputs:
+      role:
+        required: true
+        type: choice
+        options: [quality, security, privacy, operations]
+      subject: {description: "Relative digest-bound approval JSON", required: true, type: string}
+      bundle: {description: "New relative Sigstore bundle path", required: true, type: string}
+
+permissions: {contents: read, id-token: write, attestations: write, artifact-metadata: write}
+
+jobs:
+  approve:
+    environment: "release-${{ inputs.role }}-approval"
+    runs-on: [self-hosted, linux, locallingo-release]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with: {persist-credentials: false, ref: "${{ github.sha }}"}
+      - name: Verify pinned release helpers
+        run: |
+          echo 'a51a69859510b68f33af77c0eea1f06a94bc3bf2dd9945287156243661656c0b  scripts/validate-attestation-subject.py' | sha256sum -c -
+          echo '924788a5f04b93e69c0b483056d5535aff64d3018634b6c09f7ac7897c8b42a8  scripts/publish-release-artifact.py' | sha256sum -c -
+      - id: subject
+        env: {ROOT: "${{ vars.RELEASE_ARTIFACT_ROOT }}", SUBJECT: "${{ inputs.subject }}", ROLE: "${{ inputs.role }}"}
+        run: |
+          [[ "$GITHUB_REF" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+([-+][A-Za-z0-9.-]+)?$ ]] || exit 2
+          path="$(/usr/bin/python3 -I scripts/validate-attestation-subject.py --artifact-root "$ROOT" --subject "$SUBJECT" --predicate-type urn:locallingo:attestation:approval:v1 --snapshot-directory "$RUNNER_TEMP" --allow urn:locallingo:attestation:approval:v1)"
+          /usr/bin/python3 -I - "$path" "$ROLE" "$GITHUB_ACTOR" "$GITHUB_ACTOR_ID" <<'PY'
+          import json, sys
+          value = json.load(open(sys.argv[1], encoding="utf-8"))
+          if value.get("role") != sys.argv[2] or value.get("reviewer_login") != sys.argv[3] or value.get("reviewer_id") != sys.argv[4] or value.get("waivers") != []:
+              raise SystemExit("approval role/actor/waiver binding mismatch")
+          PY
+          printf 'path=%s\n' "$path" >> "$GITHUB_OUTPUT"
+      - id: attest
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        with:
+          subject-path: "${{ steps.subject.outputs.path }}"
+          predicate-type: urn:locallingo:attestation:approval:v1
+          predicate-path: "${{ steps.subject.outputs.path }}"
+      - env: {ROOT: "${{ vars.RELEASE_ARTIFACT_ROOT }}", BUNDLE: "${{ inputs.bundle }}", SOURCE: "${{ steps.attest.outputs.bundle-path }}"}
+        run: /usr/bin/python3 -I scripts/publish-release-artifact.py --artifact-root "$ROOT" --source "$SOURCE" --destination "$BUNDLE"

@@ -1,0 +1,3 @@
+// Copy to the ignored Debug.local.xcconfig for local device signing.
+APP_BUNDLE_IDENTIFIER = org.REPLACE.locallingo.debug
+DEVELOPMENT_TEAM = REPLACE1234

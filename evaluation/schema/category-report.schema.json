@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://locallingo.invalid/schema/category-report.schema.json",
+  "title": "LocalLingo typed release category report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "category", "status", "scope", "bindings", "metrics", "checks", "attachments", "generated_at", "tool"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "category": {"type": "string", "minLength": 1},
+    "status": {"const": "passed"},
+    "scope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {"kind": {"const": "global"}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "direction", "route", "device_tier", "environment"],
+          "properties": {
+            "kind": {"const": "cell"},
+            "direction": {"type": "string", "minLength": 1},
+            "route": {"type": "string", "minLength": 1},
+            "device_tier": {"type": "string", "minLength": 1},
+            "environment": {"enum": ["testflight", "production"]}
+          }
+        }
+      ]
+    },
+    "bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["release_identity_sha256", "criteria_sha256", "device_registry_sha256", "corpus", "run_identity"],
+      "properties": {
+        "release_identity_sha256": {"$ref": "#/$defs/sha256"},
+        "criteria_sha256": {"$ref": "#/$defs/sha256"},
+        "device_registry_sha256": {"$ref": "#/$defs/sha256"},
+        "corpus": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/artifact"}]},
+        "run_identity": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/artifact"}]}
+      }
+    },
+    "metrics": {"type": "object"},
+    "checks": {"type": "object", "additionalProperties": {"type": "boolean"}},
+    "attachments": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/artifact"}},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "tool": {"type": "string", "minLength": 1}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_uri", "sha256"],
+      "properties": {
+        "artifact_uri": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?![A-Za-z][A-Za-z0-9+.-]*:)(?!.*\\\\).+$"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

@@ -1,0 +1,23 @@
+#include "Base.xcconfig"
+
+// These values intentionally fail release preflight. Provide the untracked
+// Release.local.xcconfig through the signing/release secret workflow.
+APP_BUNDLE_IDENTIFIER = REPLACE_RELEASE_BUNDLE_ID
+DEVELOPMENT_TEAM = REPLACE_TEAM_ID
+APP_ATTEST_ENVIRONMENT = production
+APP_RUNTIME_ENVIRONMENT = production
+RELEASE_BUILD_ID = REPLACE_RELEASE_BUILD_ID
+API_BASE_URL = https:/$()/REPLACE_RELEASE_API_HOST
+STOREKIT_MONTHLY_PRODUCT_ID = REPLACE_MONTHLY_PRODUCT_ID
+STOREKIT_ANNUAL_PRODUCT_ID = REPLACE_ANNUAL_PRODUCT_ID
+PRIVACY_POLICY_URL = https:/$()/REPLACE_PRIVACY_POLICY_URL
+TERMS_URL = https:/$()/REPLACE_TERMS_URL
+SUPPORT_URL = https:/$()/REPLACE_SUPPORT_URL
+MICROPHONE_USAGE_DESCRIPTION = LocalLingo uses the microphone while you start a conversation turn. Local Only processes audio on this iPhone; if you select Online Quality, audio is sent to LocalLingo and Google for speech recognition and translation.
+ONLINE_FEATURES_ENABLED = YES
+FACE_TO_FACE_ENABLED = YES
+
+LOCAL_LLM_EXPERIMENT = 0
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) RELEASE
+
+#include? "Release.local.xcconfig"

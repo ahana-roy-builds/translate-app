@@ -1,0 +1,36 @@
+name: Privacy question
+description: Ask a non-confidential question about the LocalLingo Private Beta privacy policy
+title: "[Privacy] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This issue and your GitHub profile are public. Do not include names,
+        contact details, conversation content, screenshots, crash logs, device
+        identifiers, or other sensitive information. Use TestFlight's Send Beta
+        Feedback option when your report should not be posted publicly.
+  - type: dropdown
+    id: topic
+    attributes:
+      label: Topic
+      options:
+        - Privacy policy
+        - On-device data controls
+        - Apple services and downloads
+        - Other privacy question
+    validations:
+      required: true
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: Describe the policy or privacy behavior you want clarified without including sensitive information.
+    validations:
+      required: true
+  - type: checkboxes
+    id: public-content-confirmation
+    attributes:
+      label: Public content confirmation
+      options:
+        - label: I have not included personal, conversation, device, diagnostic, or other sensitive information.
+          required: true

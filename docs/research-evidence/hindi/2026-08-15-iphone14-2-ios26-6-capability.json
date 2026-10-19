@@ -1,0 +1,191 @@
+{
+  "currentAppLanguageCatalog" : [
+    "en-US",
+    "es-ES",
+    "fr-FR",
+    "de-DE",
+    "it-IT",
+    "pt-BR",
+    "ja-JP",
+    "ko-KR"
+  ],
+  "device" : {
+    "deviceClass" : "iPhone",
+    "hardwareIdentifier" : "iPhone14,2",
+    "operatingSystemVersion" : "Version 26.6 (Build 23G71)",
+    "systemName" : "iOS",
+    "systemVersion" : "26.6"
+  },
+  "dictationTranscriber" : {
+    "assetStatus" : "supported-not-installed",
+    "installedHindiLocales" : [
+
+    ],
+    "supportedLocale" : "hi_IN"
+  },
+  "interpretationNotes" : [
+    "Asset status values are inventory snapshots; this probe never asks iOS to install or reserve an asset.",
+    "DictationTranscriber exposes no separate isAvailable flag; a null frameworkAvailable value is not an unavailable result.",
+    "SFSpeechRecognizer.isAvailable is a point-in-time service signal. No recognition request is made.",
+    "Translation strategy is preferred, not guaranteed. High Fidelity may fall back, and Apple exposes no resolved-engine result through this availability API.",
+    "Speech synthesis lists voices currently exposed to the app; this probe does not speak or download a voice."
+  ],
+  "legacySpeechRecognizer" : {
+    "authorizationStatus" : "not-determined",
+    "explicitlySupportsHindi" : true,
+    "networkRequiredIfUsed" : true,
+    "recognizerCreated" : true,
+    "recognizerLocale" : "hi-IN",
+    "recognizerResolvedToHindi" : true,
+    "serviceAvailableAtProbeTime" : true,
+    "supportedHindiLocales" : [
+      "hi-IN",
+      "hi-IN-translit",
+      "hi-Latn"
+    ],
+    "supportsOnDeviceRecognition" : false
+  },
+  "probeBehavior" : {
+    "capturedAudio" : false,
+    "preparedTranslation" : false,
+    "readOnly" : true,
+    "requestedAssetDownloads" : false,
+    "requestedPermissions" : false,
+    "synthesizedSpeech" : false
+  },
+  "requestedLocale" : "hi-IN",
+  "schemaVersion" : 1,
+  "speechSynthesis" : {
+    "hasExactHindiIndiaVoice" : true,
+    "hasHindiLanguageVoice" : true,
+    "voiceCount" : 1,
+    "voices" : [
+      {
+        "language" : "hi-IN",
+        "quality" : "default"
+      }
+    ]
+  },
+  "speechTranscriber" : {
+    "assetStatus" : "unsupported",
+    "frameworkAvailable" : true,
+    "installedHindiLocales" : [
+
+    ],
+    "supportedLocale" : "hi_IN"
+  },
+  "translationDirections" : [
+    {
+      "highFidelityStatus" : "supported-not-installed",
+      "legacyDefaultStatus" : "not-applicable-on-ios-26.4-or-newer",
+      "lowLatencyStatus" : "supported-not-installed",
+      "source" : "hi-IN",
+      "target" : "en-US"
+    },
+    {
+      "highFidelityStatus" : "supported-not-installed",
+      "legacyDefaultStatus" : "not-applicable-on-ios-26.4-or-newer",
+      "lowLatencyStatus" : "supported-not-installed",
+      "source" : "en-US",
+      "target" : "hi-IN"
+    },
+    {
+      "highFidelityStatus" : "supported-not-installed",
+      "legacyDefaultStatus" : "not-applicable-on-ios-26.4-or-newer",
+      "lowLatencyStatus" : "supported-not-installed",
+      "source" : "hi-IN",
+      "target" : "es-ES"
+    },
+    {
+      "highFidelityStatus" : "supported-not-installed",
+      "legacyDefaultStatus" : "not-applicable-on-ios-26.4-or-newer",
+      "lowLatencyStatus" : "supported-not-installed",
+      "source" : "es-ES",
+      "target" : "hi-IN"
+    },
+    {
+      "highFidelityStatus" : "supported-not-installed",
+      "legacyDefaultStatus" : "not-applicable-on-ios-26.4-or-newer",
+      "lowLatencyStatus" : "supported-not-installed",
+      "source" : "hi-IN",
+      "target" : "fr-FR"
+    },
+    {
+      "highFidelityStatus" : "supported-not-installed",
+      "legacyDefaultStatus" : "not-applicable-on-ios-26.4-or-newer",
+      "lowLatencyStatus" : "supported-not-installed",
+      "source" : "fr-FR",
+      "target" : "hi-IN"
+    },
+    {
+      "highFidelityStatus" : "supported-not-installed",
+      "legacyDefaultStatus" : "not-applicable-on-ios-26.4-or-newer",
+      "lowLatencyStatus" : "supported-not-installed",
+      "source" : "hi-IN",
+      "target" : "de-DE"
+    },
+    {
+      "highFidelityStatus" : "supported-not-installed",
+      "legacyDefaultStatus" : "not-applicable-on-ios-26.4-or-newer",
+      "lowLatencyStatus" : "supported-not-installed",
+      "source" : "de-DE",
+      "target" : "hi-IN"
+    },
+    {
+      "highFidelityStatus" : "supported-not-installed",
+      "legacyDefaultStatus" : "not-applicable-on-ios-26.4-or-newer",
+      "lowLatencyStatus" : "supported-not-installed",
+      "source" : "hi-IN",
+      "target" : "it-IT"
+    },
+    {
+      "highFidelityStatus" : "supported-not-installed",
+      "legacyDefaultStatus" : "not-applicable-on-ios-26.4-or-newer",
+      "lowLatencyStatus" : "supported-not-installed",
+      "source" : "it-IT",
+      "target" : "hi-IN"
+    },
+    {
+      "highFidelityStatus" : "supported-not-installed",
+      "legacyDefaultStatus" : "not-applicable-on-ios-26.4-or-newer",
+      "lowLatencyStatus" : "supported-not-installed",
+      "source" : "hi-IN",
+      "target" : "pt-BR"
+    },
+    {
+      "highFidelityStatus" : "supported-not-installed",
+      "legacyDefaultStatus" : "not-applicable-on-ios-26.4-or-newer",
+      "lowLatencyStatus" : "supported-not-installed",
+      "source" : "pt-BR",
+      "target" : "hi-IN"
+    },
+    {
+      "highFidelityStatus" : "supported-not-installed",
+      "legacyDefaultStatus" : "not-applicable-on-ios-26.4-or-newer",
+      "lowLatencyStatus" : "supported-not-installed",
+      "source" : "hi-IN",
+      "target" : "ja-JP"
+    },
+    {
+      "highFidelityStatus" : "supported-not-installed",
+      "legacyDefaultStatus" : "not-applicable-on-ios-26.4-or-newer",
+      "lowLatencyStatus" : "supported-not-installed",
+      "source" : "ja-JP",
+      "target" : "hi-IN"
+    },
+    {
+      "highFidelityStatus" : "supported-not-installed",
+      "legacyDefaultStatus" : "not-applicable-on-ios-26.4-or-newer",
+      "lowLatencyStatus" : "supported-not-installed",
+      "source" : "hi-IN",
+      "target" : "ko-KR"
+    },
+    {
+      "highFidelityStatus" : "supported-not-installed",
+      "legacyDefaultStatus" : "not-applicable-on-ios-26.4-or-newer",
+      "lowLatencyStatus" : "supported-not-installed",
+      "source" : "ko-KR",
+      "target" : "hi-IN"
+    }
+  ]
+}

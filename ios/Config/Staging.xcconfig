@@ -1,0 +1,20 @@
+#include "Base.xcconfig"
+
+APP_BUNDLE_IDENTIFIER = com.example.locallingo.staging
+DEVELOPMENT_TEAM =
+APP_ATTEST_ENVIRONMENT = development
+APP_RUNTIME_ENVIRONMENT = staging
+RELEASE_BUILD_ID = REPLACE_STAGING_RELEASE_BUILD_ID
+API_BASE_URL = https:/$()/staging-api.example.invalid
+STOREKIT_MONTHLY_PRODUCT_ID = pro.monthly.499
+STOREKIT_ANNUAL_PRODUCT_ID = pro.annual.2999
+PRIVACY_POLICY_URL = https:/$()/example.invalid/privacy
+TERMS_URL = https:/$()/example.invalid/terms
+SUPPORT_URL = https:/$()/example.invalid/support
+MICROPHONE_USAGE_DESCRIPTION = LocalLingo uses the microphone while you start a conversation turn. Local Only processes audio on this iPhone; if you select Online Quality, audio is sent to LocalLingo and Google for speech recognition and translation.
+ONLINE_FEATURES_ENABLED = YES
+FACE_TO_FACE_ENABLED = YES
+
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) STAGING
+
+#include? "Staging.local.xcconfig"

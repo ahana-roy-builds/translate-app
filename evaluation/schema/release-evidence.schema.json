@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://locallingo.invalid/schema/release-evidence.schema.json",
+  "title": "LocalLingo release evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "criteria_sha256", "release", "signoffs", "global_evidence", "matrix"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "criteria_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["app_commit", "app_version", "build_number", "release_build_id", "xcode_version", "backend_base_image", "backend_image", "backend_build_metadata_sha256", "terraform_plan_sha256", "testflight_terraform_plan_sha256", "terraform_backend_config_sha256", "testflight_terraform_backend_config_sha256", "terraform_variables_sha256", "testflight_terraform_variables_sha256", "terraform_plan_provenance_sha256", "testflight_terraform_plan_provenance_sha256", "ios_resolved_config_sha256", "testflight_resolved_config_sha256", "device_registry_sha256", "generated_at", "configuration", "local_llm_experiment"],
+      "properties": {
+        "app_commit": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
+        "app_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+        "build_number": {"type": "string", "pattern": "^[1-9][0-9]*$"},
+        "release_build_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{15,127}$"},
+        "xcode_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+(?:\\.[0-9]+)?$"},
+        "backend_base_image": {"type": "string", "pattern": "@sha256:[a-f0-9]{64}$"},
+        "backend_image": {"type": "string", "pattern": "@sha256:[a-f0-9]{64}$"},
+        "backend_build_metadata_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "terraform_plan_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "testflight_terraform_plan_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "terraform_backend_config_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "testflight_terraform_backend_config_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "terraform_variables_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "testflight_terraform_variables_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "terraform_plan_provenance_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "testflight_terraform_plan_provenance_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "ios_resolved_config_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "testflight_resolved_config_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "device_registry_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "generated_at": {"type": "string", "format": "date-time"},
+        "configuration": {"const": "Release"},
+        "local_llm_experiment": {"const": false}
+      }
+    },
+    "signoffs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["quality", "security", "privacy", "operations"],
+      "properties": {
+        "quality": {"$ref": "#/$defs/signoff"},
+        "security": {"$ref": "#/$defs/signoff"},
+        "privacy": {"$ref": "#/$defs/signoff"},
+        "operations": {"$ref": "#/$defs/signoff"}
+      }
+    },
+    "global_evidence": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/evidence"}
+    },
+    "matrix": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["direction", "route", "device_tier", "environment", "evidence"],
+        "properties": {
+          "direction": {"type": "string"},
+          "route": {"type": "string"},
+          "device_tier": {"type": "string"},
+          "environment": {"enum": ["testflight", "production"]},
+          "evidence": {
+            "type": "object",
+            "additionalProperties": {"$ref": "#/$defs/evidence"}
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "artifact_uri", "sha256", "reviewed_by", "reviewed_at"],
+      "properties": {
+        "status": {"const": "passed"},
+        "artifact_uri": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?![A-Za-z][A-Za-z0-9+.-]*:)(?!.*\\\\).+$"},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "reviewed_by": {"type": "string", "minLength": 1},
+        "reviewed_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "signoff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewer", "approved_at"],
+      "properties": {
+        "reviewer": {"type": "string", "minLength": 1},
+        "approved_at": {"type": "string", "format": "date-time"}
+      }
+    }
+  }
+}
