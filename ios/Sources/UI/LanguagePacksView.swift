@@ -57,13 +57,12 @@ struct LanguagePacksView: View {
         }
         .navigationTitle("Language Packs")
         .accessibilityIdentifier("languagePacks.list")
-        .task {
-            await manager.check(pair)
-            await manager.refreshAll()
-        }
+        .task(id: pair) { await manager.checkIfNeeded(pair) }
+        .task(id: manager.catalogRevision) { await manager.loadCatalogIfNeeded() }
         .refreshable {
             await manager.check(pair)
-            await manager.refreshAll()
+            manager.invalidateCatalog()
+            await manager.loadCatalogIfNeeded()
         }
         .onDisappear {
             operationTask?.cancel()
@@ -121,7 +120,7 @@ struct LanguagePacksView: View {
             }
 
             if isPreparingPair {
-                preparationProgress
+                LanguagePackProgress(manager: manager)
                 Button(role: .cancel) {
                     operationTask?.cancel()
                     operationTask = nil
@@ -199,29 +198,6 @@ struct LanguagePacksView: View {
         }
     }
 
-    @ViewBuilder
-    private var preparationProgress: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let message = manager.progressMessage {
-                Text(message)
-                    .font(.caption)
-            }
-            if let fraction = manager.installationProgress {
-                HStack {
-                    ProgressView(value: fraction)
-                    Text(
-                        fraction,
-                        format: .percent.precision(.fractionLength(0))
-                    )
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                }
-            } else {
-                ProgressView()
-            }
-        }
-    }
-
     private var reservationUsage: String {
         let inventory = manager.speechInventory
         guard inventory.maximumReservedLocales > 0 else { return "Checking" }
@@ -257,6 +233,32 @@ struct LanguagePacksView: View {
     ) -> ComponentReadiness {
         guard pairReadiness.pair == pair else { return .checking }
         return pairReadiness[keyPath: keyPath]
+    }
+}
+
+private struct LanguagePackProgress: View {
+    @ObservedObject var manager: LanguagePackManager
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let message = manager.progressMessage {
+                Text(message)
+                    .font(.caption)
+            }
+            if let fraction = manager.installationProgress {
+                HStack {
+                    ProgressView(value: fraction)
+                    Text(
+                        fraction,
+                        format: .percent.precision(.fractionLength(0))
+                    )
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                }
+            } else {
+                ProgressView()
+            }
+        }
     }
 }
 
@@ -301,6 +303,7 @@ private struct LanguageAssetDetailView: View {
     @ObservedObject var manager: LanguagePackManager
     @ObservedObject var settings: SettingsStore
     @State private var operationTask: Task<Void, Never>?
+    @State private var showVoiceSetup = false
 
     private var state: LanguageAssetState { manager.state(for: language) }
     private var selectedSide: SpeakerSide? {
@@ -310,6 +313,13 @@ private struct LanguageAssetDetailView: View {
     }
     private var isCurrentOperation: Bool {
         manager.isWorking && manager.activeOperation?.contains(language) == true
+    }
+    private var canRequestListen: Bool {
+        switch state.listenReadiness {
+        case .downloadRequired, .downloading: true
+        case .unknown: state.errorMessage != nil
+        default: false
+        }
     }
 
     var body: some View {
@@ -327,18 +337,43 @@ private struct LanguageAssetDetailView: View {
             }
 
             Section("Components") {
-                ReadinessRow(
-                    title: "Listen recognition",
-                    value: state.listenReadiness
-                )
+                if canRequestListen && !isCurrentOperation {
+                    Button {
+                        manager.downloadListen(for: language, protecting: settings.value.pair)
+                    } label: {
+                        LabeledContent("Listen recognition") {
+                            Label("Download", systemImage: "arrow.down.circle")
+                                .foregroundStyle(TranslatorTheme.accent)
+                        }
+                    }
+                    .disabled(manager.isWorking)
+                    .accessibilityLabel("Download listening model")
+                    .accessibilityIdentifier("languagePacks.downloadListen")
+                } else {
+                    ReadinessRow(title: "Listen recognition", value: state.listenReadiness)
+                }
+                if isCurrentOperation {
+                    LanguagePackProgress(manager: manager)
+                    if manager.isDownloadingListen(for: language) {
+                        Button("Cancel download", role: .cancel) { manager.cancelInstallation() }
+                    }
+                }
                 LabeledContent(
                     "Listen reservation",
                     value: state.listenReserved ? "Reserved" : "Not reserved"
                 )
-                ReadinessRow(
-                    title: "Speak voice",
-                    value: state.speakReadiness
-                )
+                if state.speakReadiness == .downloadRequired {
+                    Button {
+                        showVoiceSetup = true
+                    } label: {
+                        LabeledContent("Speak voice") {
+                            Label("Voice setup", systemImage: "info.circle")
+                                .foregroundStyle(TranslatorTheme.accent)
+                        }
+                    }
+                } else {
+                    ReadinessRow(title: "Speak voice", value: state.speakReadiness)
+                }
             }
 
             if language == .hindiIndia {
@@ -347,8 +382,8 @@ private struct LanguageAssetDetailView: View {
                 }
             }
 
-            Section {
-                if state.listenReserved {
+            if state.listenReserved {
+                Section {
                     Button {
                         operationTask?.cancel()
                         operationTask = Task {
@@ -358,16 +393,15 @@ private struct LanguageAssetDetailView: View {
                         Label("Release Listen reservation", systemImage: "minus.circle")
                     }
                     .disabled(manager.isWorking || selectedSide != nil)
-                }
-
-                if selectedSide != nil, state.listenReserved {
-                    Text("Change the selected conversation pair before releasing this Listen reservation.")
+                    if selectedSide != nil {
+                        Text("Change the selected conversation pair before releasing this Listen reservation.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text("iOS decides when to remove the shared model after you release its reservation.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                Text("Releasing a reservation does not force immediate deletion. iOS removes shared Listen files when it chooses.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
             if let error = state.errorMessage
@@ -388,9 +422,14 @@ private struct LanguageAssetDetailView: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .alert("Install a playback voice", isPresented: $showVoiceSetup) {
+            Button("Done") {}
+        } message: {
+            Text("Open iPhone Settings → Accessibility → Read & Speak → Voices. Choose the language and download a voice, then return to Speak Duet.")
+        }
         .navigationTitle(language.displayName)
         .accessibilityIdentifier("languagePacks.detail.\(language.code)")
-        .task { await manager.refresh(language) }
+        .task(id: manager.catalogRevision) { await manager.loadCatalogIfNeeded() }
         .onDisappear {
             operationTask?.cancel()
         }

@@ -47,6 +47,7 @@ enum ContinuousConversationState: Equatable, Sendable {
     case resuming
     case ending
     case ended
+    case interrupted
     case failed(String)
 
     var isRunning: Bool {
@@ -54,7 +55,7 @@ enum ContinuousConversationState: Equatable, Sendable {
         case .preparing, .listening, .catchingUp, .pausedForPlayback,
              .pausing, .pausedByUser, .resuming, .ending:
             true
-        case .idle, .ended, .failed:
+        case .idle, .ended, .interrupted, .failed:
             false
         }
     }
@@ -73,7 +74,7 @@ enum ContinuousModePolicy {
         case .listening, .catchingUp, .pausedByUser:
             true
         case .idle, .preparing, .pausedForPlayback, .pausing, .resuming,
-             .ending, .ended, .failed:
+             .ending, .ended, .interrupted, .failed:
             false
         }
     }

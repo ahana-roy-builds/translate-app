@@ -25,10 +25,11 @@ final class PlaybackService {
     }
 
     func speak(_ text: String, locale: Locale, slower: Bool) async throws {
+        let standardRate = AVSpeechUtteranceDefaultSpeechRate * 0.75
         try await synthesis.speak(
             text,
             locale: locale,
-            rate: slower ? AVSpeechUtteranceDefaultSpeechRate * 0.72 : AVSpeechUtteranceDefaultSpeechRate
+            rate: slower ? standardRate * 0.72 : standardRate
         )
     }
 

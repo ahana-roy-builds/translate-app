@@ -4,6 +4,7 @@ import Translation
 
 struct RootView: View {
     @ObservedObject var container: AppContainer
+    @ObservedObject private var settings: SettingsStore
     @ObservedObject private var languagePacks: LanguagePackManager
     @ObservedObject private var onboarding: OnboardingStore
     @ObservedObject private var access: TranslationAccessManager
@@ -15,6 +16,7 @@ struct RootView: View {
 
     init(container: AppContainer) {
         _container = ObservedObject(wrappedValue: container)
+        _settings = ObservedObject(wrappedValue: container.settings)
         _languagePacks = ObservedObject(wrappedValue: container.languagePacks)
         _onboarding = ObservedObject(wrappedValue: container.onboarding)
         _access = ObservedObject(wrappedValue: container.access)
@@ -42,6 +44,10 @@ struct RootView: View {
                     .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Continue as guest") { showSignup = false } } }
             }
         }
+        .preferredColorScheme(settings.value.appearance.colorScheme)
+        .onChange(of: settings.value.continuousTranslationStrategy) { _, _ in
+            Task { await languagePacks.check(settings.value.pair) }
+        }
         .onChange(of: continuous.state) { _, state in
             if state == .ended, !continuous.turns.isEmpty,
                !hasOfferedAccount, container.authentication.isConfigured,
@@ -68,17 +74,7 @@ struct RootView: View {
                     ConversationView(orchestrator: container.conversation, settings: container.settings,
                                      capabilities: container.capabilities)
                 }
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    if container.capabilities.translationAccessRequired {
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(access.state.message).font(.caption)
-                            Spacer(minLength: 8)
-                            Button("Subscription") { access.requestsPaywall = true }.font(.caption.bold())
-                        }
-                        .padding(.horizontal).padding(.vertical, 8)
-                        .background(TranslatorTheme.softAccent)
-                    }
-                }
+
             }
             .tabItem { Label("Talk", systemImage: "mic.fill") }
 
@@ -106,8 +102,8 @@ struct RootView: View {
             )
         ) { _ in
             Task {
+                container.languagePacks.invalidateCatalog()
                 await container.languagePacks.check(container.settings.value.pair)
-                await container.languagePacks.refreshAll()
             }
         }
     }

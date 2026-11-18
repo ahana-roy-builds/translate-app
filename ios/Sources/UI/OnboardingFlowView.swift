@@ -25,15 +25,7 @@ struct OnboardingFlowView: View {
                         .accessibilityLabel("Setup step \(step + 1) of 4")
                     switch step {
                     case 0:
-                        HStack(spacing: 8) {
-                            greeting("Hello", color: TranslatorTheme.softAccent, tail: .leading)
-                            Image(systemName: "waveform").foregroundStyle(TranslatorTheme.accent)
-                            greeting("Hola", color: Color(.secondarySystemBackground), tail: .trailing)
-                                .offset(y: 8)
-                        }
-                        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-                        .padding(.vertical, 12)
-                        .accessibilityHidden(true)
+                        welcomeArtwork
                         Text("Speak two languages. Have one conversation")
                             .font(dynamicTypeSize.isAccessibilitySize ? .title.bold() : .largeTitle.bold())
                         Text("Tap the mic once and take turns speaking. Speak Duet translates when you pause.")
@@ -67,6 +59,7 @@ struct OnboardingFlowView: View {
                 .frame(maxWidth: 560, alignment: .leading)
                 .frame(maxWidth: .infinity)
             }
+            .background(TranslatorTheme.canvas)
             .id(step)
             .navigationTitle("Speak Duet")
             .navigationBarTitleDisplayMode(.inline)
@@ -95,22 +88,29 @@ struct OnboardingFlowView: View {
         }
     }
 
-    private func greeting(_ text: String, color: Color, tail: HorizontalAlignment) -> some View {
-        Text(text).font(.title3.bold()).fixedSize()
-            .padding(.horizontal, 16).padding(.vertical, 10)
-            .background(color, in: RoundedRectangle(cornerRadius: 16))
-            .overlay(alignment: Alignment(horizontal: tail, vertical: .bottom)) {
-                Path { path in
-                    path.move(to: CGPoint(x: 0, y: 0))
-                    path.addLine(to: CGPoint(x: 14, y: 0))
-                    path.addLine(to: CGPoint(x: tail == .leading ? 0 : 14, y: 10))
-                    path.closeSubpath()
-                }
-                .fill(color)
-                .frame(width: 14, height: 10)
-                .padding(.horizontal, 12)
-                .offset(y: 9)
+    private var welcomeArtwork: some View {
+        ZStack {
+            HStack(spacing: -20) {
+                greeting("Hello", tilt: -9)
+                greeting("Hola", tilt: 9).offset(y: 16)
             }
+            .dynamicTypeSize(.medium)
+        }
+        .frame(maxWidth: .infinity, minHeight: 150)
+        .background(TranslatorTheme.ribbon, in: RoundedRectangle(cornerRadius: 22))
+        .accessibilityHidden(true)
+    }
+
+    private func greeting(_ title: String, tilt: Double) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Image(systemName: "waveform").font(.subheadline.bold())
+                .foregroundStyle(TranslatorTheme.accent)
+            Text(title).font(.title.bold()).foregroundStyle(TranslatorTheme.ink)
+        }
+        .frame(width: 94, alignment: .leading)
+        .padding(12)
+        .relayCard()
+        .rotationEffect(.degrees(tilt))
     }
 
     private func pairLabel(_ pair: LanguagePair) -> some View {
@@ -170,8 +170,16 @@ struct OnboardingFlowView: View {
     }
 
     private func nextButton(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(title, action: action)
+        Button(action: action) {
+            HStack {
+                Text(title).font(.headline)
+                Spacer()
+                Image(systemName: "arrow.right").accessibilityHidden(true)
+            }
+            .padding(.vertical, 3)
+        }
             .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.roundedRectangle(radius: TranslatorTheme.cornerRadius))
             .foregroundStyle(TranslatorTheme.onAccent)
             .controlSize(.large)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -202,9 +210,10 @@ struct OnboardingFlowView: View {
                         }
                         Spacer()
                         Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(selected ? TranslatorTheme.accent : TranslatorTheme.muted)
                     }
                     .padding()
-                    .background(selected ? TranslatorTheme.softAccent : Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+                    .relayCard(border: selected ? TranslatorTheme.accent : TranslatorTheme.edge)
                 }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(selected ? [.isSelected] : [])

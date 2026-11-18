@@ -23,6 +23,14 @@ final class AppleContinuousSpeechRecognizer: ContinuousSpeechRecognizing {
     private var finalAccumulators: [AppLanguage: ContinuousRecognitionAccumulator] = [:]
     private var finalizationProgress = ContinuousFinalizationProgress()
     private var activePair: LanguagePair?
+    private var liveBoundary: CMTime?
+    private var activeSpeechStart: CMTime?
+    private struct ClosingDraft {
+        let range: CMTimeRange
+        var selector: ContinuousDraftSelector
+        let publish: @MainActor (ContinuousDraft?) -> Void
+    }
+    private var closingDrafts: [ClosingDraft] = []
     private var draftSelector = ContinuousDraftSelector()
     private var onDraft: (@MainActor (ContinuousDraft?) -> Void)?
     private var onFailure: (@MainActor (Error) -> Void)?
@@ -184,6 +192,13 @@ final class AppleContinuousSpeechRecognizer: ContinuousSpeechRecognizing {
     }
 
     func finalizeUtterance(in range: CMTimeRange) async throws -> LanguageDecision {
+        let sessionGeneration = generation
+        defer {
+            if sessionGeneration == generation {
+                closingDrafts.removeAll { $0.range == range }
+                trimLiveBuffer(through: range.end)
+            }
+        }
         if let terminalError { throw terminalError }
         guard let analyzer, let pair = activePair else {
             throw PipelineError.server("Continuous listening has not started.")
@@ -201,7 +216,6 @@ final class AppleContinuousSpeechRecognizer: ContinuousSpeechRecognizing {
             throw PipelineError.server("Continuous listening supplied an invalid utterance range.")
         }
 
-        let sessionGeneration = generation
         do {
             try await analyzer.finalize(through: end)
         } catch is CancellationError {
@@ -336,7 +350,21 @@ final class AppleContinuousSpeechRecognizer: ContinuousSpeechRecognizing {
         generation: UUID
     ) {
         guard generation == self.generation, terminalError == nil else { return }
-        let text = String(result.text.characters).trimmingCharacters(in: .whitespacesAndNewlines)
+        var range = result.range
+        var words = result.text
+        if let boundary = liveBoundary {
+            let end = CMTimeRangeGetEnd(range)
+            guard CMTimeCompare(end, boundary) > 0 else { return }
+            if CMTimeCompare(range.start, boundary) < 0 {
+                let segment = ContinuousRecognitionSegment(
+                    range: range, text: String(words.characters), isFinal: result.isFinal,
+                    confidence: nil, lowConfidenceFraction: 0, timedText: words
+                )
+                range = CMTimeRange(start: boundary, end: end)
+                words = segment.clipped(to: range)?.timedText ?? AttributedString()
+            }
+        }
+        let text = String(words.characters).trimmingCharacters(in: .whitespacesAndNewlines)
         guard TurnTextPolicy.isFinalTextWithinLimit(text) else {
             recordFailure(
                 PipelineError.server(
@@ -346,13 +374,14 @@ final class AppleContinuousSpeechRecognizer: ContinuousSpeechRecognizing {
             )
             return
         }
-        let confidence = Self.confidenceSummary(result.text)
+        let confidence = Self.confidenceSummary(words)
         guard liveAccumulators[language]?.apply(
-            range: result.range,
+            range: range,
             text: text,
             isFinal: result.isFinal,
             confidence: confidence.mean,
-            lowConfidenceFraction: confidence.lowFraction
+            lowConfidenceFraction: confidence.lowFraction,
+            timedText: words
         ) == true else {
             recordFailure(
                 PipelineError.server(
@@ -362,17 +391,15 @@ final class AppleContinuousSpeechRecognizer: ContinuousSpeechRecognizing {
             )
             return
         }
-        if let accumulatedText = liveAccumulators[language]?.transcript()?.text,
-           !TurnTextPolicy.isFinalTextWithinLimit(accumulatedText) {
-            recordFailure(
-                PipelineError.server(
-                    "The speech result is too long. Please split the turn and try again."
-                ),
-                generation: generation
-            )
-            return
+        for index in closingDrafts.indices {
+            let interval = closingDrafts[index].range
+            guard CMTimeRangeGetIntersection(interval, otherRange: range).duration > .zero else { continue }
+            let revision = makeDraft(in: interval, selector: &closingDrafts[index].selector)
+            closingDrafts[index].publish(revision)
         }
-        publishDraft()
+        if let activeSpeechStart, range.end > activeSpeechStart {
+            publishActiveDraft(from: activeSpeechStart)
+        }
     }
 
     private func consumeFinal(
@@ -399,7 +426,8 @@ final class AppleContinuousSpeechRecognizer: ContinuousSpeechRecognizing {
             text: text,
             isFinal: true,
             confidence: confidence.mean,
-            lowConfidenceFraction: confidence.lowFraction
+            lowConfidenceFraction: confidence.lowFraction,
+            timedText: result.text
         ) == true else {
             recordFailure(
                 PipelineError.server(
@@ -425,26 +453,60 @@ final class AppleContinuousSpeechRecognizer: ContinuousSpeechRecognizing {
         )
     }
 
-    private func publishDraft() {
-        guard let pair = activePair else { return }
+    func beginUtterance(at start: CMTime) {
+        activeSpeechStart = start
+        trimLiveBuffer(through: start)
+        draftSelector.reset()
+        publishActiveDraft(from: start)
+    }
+
+    private func publishActiveDraft(from start: CMTime) {
+        // Audio is fed to recognition before VAD confirms the onset. Include
+        // those buffered words, but never text from the preceding silence.
+        guard let end = converter?.deliveredThrough, end > start else { return }
+        onDraft?(makeDraft(in: CMTimeRange(start: start, end: end), selector: &draftSelector))
+    }
+
+    func takeDraft(in range: CMTimeRange, onRevision: @escaping @MainActor (ContinuousDraft?) -> Void) -> ContinuousDraft? {
+        let snapshot = makeDraft(in: range, selector: &draftSelector)
+        closingDrafts.append(ClosingDraft(range: range, selector: draftSelector, publish: onRevision))
+        activeSpeechStart = nil
+        draftSelector.reset()
+        onDraft?(nil)
+        return snapshot
+    }
+
+    private func trimLiveBuffer(through time: CMTime) {
+        // Finalization and new speech can overlap. Retain words for every
+        // outstanding range until its final-only candidates are available.
+        var boundary = closingDrafts.reduce(time) { CMTimeMinimum($0, $1.range.start) }
+        if let activeSpeechStart { boundary = CMTimeMinimum(boundary, activeSpeechStart) }
+        if let liveBoundary, boundary <= liveBoundary { return }
+        liveBoundary = boundary
+        for language in Array(liveAccumulators.keys) {
+            liveAccumulators[language]?.retireLiveDraft(through: boundary)
+        }
+    }
+
+    private func makeDraft(in range: CMTimeRange, selector: inout ContinuousDraftSelector) -> ContinuousDraft? {
+        guard let pair = activePair else { return nil }
         let candidates = [pair.traveler, pair.local].compactMap { language in
             makeCandidate(
                 language: language,
-                range: nil,
+                range: range,
                 pair: pair,
                 accumulators: liveAccumulators
             )
         }
-        guard let selected = draftSelector.select(candidates: candidates) else {
-            onDraft?(nil)
-            return
+        guard let selected = selector.select(candidates: candidates) else {
+            return nil
         }
-        onDraft?(ContinuousDraft(
+        return ContinuousDraft(
             language: selected.language,
             text: TurnTextPolicy.clampedPartial(selected.text),
             confidence: selected.confidence,
             score: selected.score
-        ))
+        )
     }
 
     private func makeCandidate(
@@ -517,11 +579,8 @@ final class AppleContinuousSpeechRecognizer: ContinuousSpeechRecognizing {
         await analyzer.cancelAnalysis(before: end)
         guard generation == sessionGeneration else { throw CancellationError() }
         for language in [pair.traveler, pair.local] {
-            liveAccumulators[language]?.discard(before: end)
             finalAccumulators[language]?.discard(before: end)
         }
-        draftSelector.reset()
-        onDraft?(nil)
     }
 
     nonisolated static func finalResultDrainTimeout(for pair: LanguagePair) -> Duration {
@@ -590,6 +649,9 @@ final class AppleContinuousSpeechRecognizer: ContinuousSpeechRecognizing {
         finalAccumulators = [:]
         finalizationProgress = ContinuousFinalizationProgress()
         activePair = nil
+        liveBoundary = nil
+        activeSpeechStart = nil
+        closingDrafts = []
         draftSelector.reset()
         onDraft = nil
         onFailure = nil

@@ -1,8 +1,24 @@
+import AVFoundation
 import Foundation
 import XCTest
 @testable import LocalLingo
 
 final class PlaybackCallbackStateTests: XCTestCase {
+    @MainActor
+    func testTranslationSpeechRates() async throws {
+        let locale = Locale(identifier: "es-ES")
+        let synthesis = TargetVoiceSynthesis(availableLocaleIDs: [locale.identifier])
+        let playback = PlaybackService(synthesis: synthesis)
+
+        try await playback.speak("Hola", locale: locale, slower: false)
+        let standardRate = try XCTUnwrap(synthesis.lastRate)
+        XCTAssertEqual(standardRate, AVSpeechUtteranceDefaultSpeechRate * 0.75, accuracy: 0.0001)
+
+        try await playback.speak("Hola", locale: locale, slower: true)
+        let slowerRate = try XCTUnwrap(synthesis.lastRate)
+        XCTAssertEqual(slowerRate, standardRate * 0.72, accuracy: 0.0001)
+    }
+
     @MainActor
     func testSpeechSynthesizerUsesSystemManagedAudioSession() {
         XCTAssertFalse(AppleSpeechSynthesisEngine().usesApplicationAudioSession)
@@ -78,6 +94,7 @@ final class PlaybackCallbackStateTests: XCTestCase {
 @MainActor
 private final class TargetVoiceSynthesis: SpeechSynthesisEngine {
     private let availableLocaleIDs: Set<String>
+    private(set) var lastRate: Float?
 
     init(availableLocaleIDs: Set<String>) {
         self.availableLocaleIDs = availableLocaleIDs
@@ -87,7 +104,9 @@ private final class TargetVoiceSynthesis: SpeechSynthesisEngine {
         availableLocaleIDs.contains(locale.identifier)
     }
 
-    func speak(_ text: String, locale: Locale, rate: Float) async throws {}
+    func speak(_ text: String, locale: Locale, rate: Float) async throws {
+        lastRate = rate
+    }
     func play(data: Data, format: String?) async throws {}
     func cancel() {}
 }

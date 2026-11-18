@@ -10,6 +10,7 @@ struct SettingsView: View {
     @ObservedObject var languagePacks: LanguagePackManager
     let onlineClient: any OnlineTranslationClient
     let capabilities: AppCapabilities
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var showPaywall = false
     @State private var confirmDeleteAll = false
     @State private var showOnlineConsent = false
@@ -21,8 +22,30 @@ struct SettingsView: View {
     @State private var isReplacingDevice = false
     @State private var deviceMessage: String?
 
+    private var appearancePicker: some View {
+        Picker("Appearance", selection: $settings.value.appearance) {
+            ForEach(AppAppearance.allCases, id: \.self) { appearance in
+                Text(appearance.rawValue).tag(appearance)
+            }
+        }
+        .accessibilityIdentifier("settings.appearance")
+    }
+
     var body: some View {
         Form {
+            Section {
+                if dynamicTypeSize.isAccessibilitySize {
+                    appearancePicker.pickerStyle(.menu)
+                } else {
+                    appearancePicker.pickerStyle(.segmented)
+                }
+            } header: {
+                Text("Appearance")
+            } footer: {
+                Text("Automatic follows your iPhone.")
+            }
+            .listRowBackground(TranslatorTheme.card)
+
             Section("Conversation") {
                 Picker("Default language", selection: $settings.value.defaultLanguage) {
                     ForEach(AppLanguage.conversationLanguages) { language in
@@ -80,6 +103,7 @@ struct SettingsView: View {
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
+                    .disabled(languagePacks.isWorking)
                     .accessibilityIdentifier("settings.continuousTranslationStrategy")
                     Text(continuousTranslationStrategyDescription)
                         .font(.caption)
@@ -170,9 +194,11 @@ struct SettingsView: View {
                 legalLinks
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(TranslatorTheme.canvas)
         .navigationTitle("Settings")
         .tint(TranslatorTheme.accent)
-        .task { await languagePacks.refreshAll() }
+        .task(id: settings.value.pair) { await languagePacks.checkIfNeeded(settings.value.pair) }
         .sheet(isPresented: $showPaywall) { SpeakDuetSubscriptionView(subscription: subscription, access: access) }
         .manageSubscriptionsSheet(isPresented: $showManageSubscriptions)
         .alert("Delete all history?", isPresented: $confirmDeleteAll) {

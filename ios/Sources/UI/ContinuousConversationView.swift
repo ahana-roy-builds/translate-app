@@ -17,7 +17,7 @@ struct ContinuousTalkPresentation {
             .start
         case .listening, .catchingUp:
             .pause
-        case .pausedByUser:
+        case .pausedByUser, .interrupted:
             .resume
         case .failed:
             .retry
@@ -45,7 +45,7 @@ struct ContinuousTalkPresentation {
         switch state {
         case .preparing, .listening, .catchingUp, .pausedForPlayback, .pausedByUser:
             true
-        case .idle, .pausing, .resuming, .ending, .ended, .failed:
+        case .idle, .pausing, .resuming, .ending, .ended, .interrupted, .failed:
             false
         }
     }
@@ -54,7 +54,7 @@ struct ContinuousTalkPresentation {
         state: ContinuousConversationState,
         hasTurns: Bool
     ) -> Bool {
-        if state.isRunning || hasTurns || state == .ended {
+        if state.isRunning || hasTurns || state == .ended || state == .interrupted {
             return true
         }
         if case .failed = state {
@@ -114,65 +114,95 @@ struct ContinuousConversationView: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
-    @State private var installationTask: Task<Void, Never>?
-    @State private var showLanguagePicker = false
-    @State private var languagePickerSide: SpeakerSide = .traveler
+    @State private var languagePickerSide: SpeakerSide?
+    @State private var showVoiceDetails = false
     @State private var showSafetyInformation = false
+    @State private var recheckBeforeStarting = false
+    @State private var confirmedSetupNeeded = false
     @AccessibilityFocusState private var statusFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
-            languageHeader
-
-            if usesScrollableSetupLayout {
-                ScrollView {
-                    setupNotice
-                    emptyConversation
-                        .frame(minHeight: 360)
-                }
+            if showsWaveLayout {
+                faceToFaceConversation
             } else {
-                setupNotice
+                languageHeader
 
-                if coordinator.turns.isEmpty {
-                    emptyConversation
+                if coordinator.turns.isEmpty && !usesBottomDock && shouldShowVoiceNotice {
+                    ScrollView {
+                        setupNotice
+                        emptyConversation
+                            .frame(minHeight: 360)
+                    }
                 } else {
-                    transcript
-                }
-            }
+                    setupNotice
 
-            if usesBottomDock {
-                controlDock
+                    if coordinator.turns.isEmpty && visibleDraft == nil {
+                        emptyConversation
+                    } else {
+                        transcript
+                    }
+                }
+
+                if usesBottomDock {
+                    controlDock
+                }
             }
         }
-        .background(Color(uiColor: .systemBackground))
+        .background(TranslatorTheme.canvas)
         .navigationTitle("Speak Duet")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(coordinator.isSessionActive ? .hidden : .visible, for: .tabBar)
+        .toolbar(coordinator.isRunning ? .hidden : .visible, for: .tabBar)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
+                Button {
+                    settings.value.talkLayout = settings.value.talkLayout == .faceToFace ? .heldPhone : .faceToFace
+                } label: {
+                    Image(systemName: settings.value.talkLayout == .faceToFace ? "iphone" : "rectangle.split.2x1")
+                }
+                .accessibilityLabel(settings.value.talkLayout == .faceToFace ? "Switch to held phone" : "Switch to face to face")
+                .accessibilityIdentifier("talk.switch-layout")
                 speakerPreferenceButton
 
-                if !coordinator.isSessionActive {
+                if !coordinator.isRunning {
                     overflowMenu
+                        .disabled(coordinator.isReviewedPlaybackActive)
                 }
             }
         }
-        .sheet(isPresented: $showLanguagePicker) {
-            languagePicker
+        .sheet(item: $languagePickerSide) { side in
+            languagePicker(for: side)
         }
         .sheet(isPresented: $showSafetyInformation) {
             safetyInformation
         }
         .task {
             syncSpokenTranslationPreference()
+            guard scenePhase == .active else { return }
             await languagePacks.check(settings.value.pair)
-            await languagePacks.refreshAll()
         }
+        .task(id: recheckBeforeStarting) {
+            guard recheckBeforeStarting else { return }
+            let pair = settings.value.pair
+            let strategy = settings.value.continuousTranslationStrategy
+            let action = primaryAction
+            await languagePacks.check(pair)
+            guard !Task.isCancelled, recheckBeforeStarting, scenePhase == .active,
+                  settings.value.pair == pair, settings.value.continuousTranslationStrategy == strategy,
+                  action == primaryAction else { return }
+            recheckBeforeStarting = false
+            confirmedSetupNeeded = !coreReady
+            if coreReady && primaryActionEnabled { performReadyAction() }
+        }
+        .onDisappear { recheckBeforeStarting = false }
+        .onChange(of: settings.value.pair) { _, _ in resetStartCheck() }
+        .onChange(of: settings.value.continuousTranslationStrategy) { _, _ in resetStartCheck() }
         .onAppear {
             coordinator.handleSceneActivity(isActive: scenePhase == .active)
             syncSpokenTranslationPreference()
         }
         .onChange(of: scenePhase) { _, phase in
+            if phase != .active { resetStartCheck() }
             coordinator.handleSceneActivity(isActive: phase == .active)
         }
         .onChange(of: coordinator.state) { oldState, newState in
@@ -188,21 +218,117 @@ struct ContinuousConversationView: View {
             syncSpokenTranslationPreference()
         }
         .animation(reduceMotion ? nil : .snappy(duration: 0.28), value: usesBottomDock)
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: shouldShowReadinessPanel)
+    }
+
+    private var showsWaveLayout: Bool {
+        settings.value.talkLayout == .faceToFace
+    }
+
+    private var visibleDraft: ContinuousDraft? {
+        coordinator.draft ?? coordinator.pendingDrafts.max(by: { $0.key < $1.key })?.value
+    }
+
+    private var faceToFaceConversation: some View {
+        VStack(spacing: 0) {
+            seat(.local)
+                .rotationEffect(.degrees(180))
+            TalkWaveRibbon(phase: wavePhase)
+            seat(.traveler)
+            Divider()
+            HStack(spacing: 12) {
+                primaryMicrophoneButton(diameter: 48)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(coordinator.state == .idle && canOfferStart && !recheckBeforeStarting ? "Start conversation" : wavePhase.status ?? emptyStateTitle)
+                        .font(.subheadline.weight(.semibold))
+                        .accessibilityFocused($statusFocused)
+                        .accessibilityIdentifier("talk.session-status")
+                    if let error = coordinator.errorMessage {
+                        Text(error).foregroundStyle(.red).font(.caption)
+                    } else if needsLanguageSetup {
+                        languageSetupLink
+                    } else if shouldShowVoiceNotice {
+                        Button(spokenOutputNoticeTitle) { showVoiceDetails = true }
+                            .font(.caption)
+                            .popover(isPresented: $showVoiceDetails) {
+                                Text(spokenOutputNoticeMessage).padding().presentationCompactAdaptation(.popover)
+                            }
+                    } else {
+                        Label("On device", systemImage: "lock.fill")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 0)
+                if showsEndButton {
+                    Button(role: .destructive) { coordinator.endSession() } label: {
+                        Image(systemName: "stop.fill").frame(width: 44, height: 44)
+                    }
+                    .disabled(!canEndSession)
+                    .accessibilityLabel("End conversation")
+                    .accessibilityIdentifier("talk.end")
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 6)
+            .background(TranslatorTheme.canvas)
+        }
+        .onChange(of: coordinator.turns.last?.id) { _, id in
+            if id != nil, UIAccessibility.isVoiceOverRunning, let turn = coordinator.turns.last {
+                UIAccessibility.post(notification: .announcement, argument: turn.translatedText)
+            }
+        }
+    }
+
+    private var wavePhase: TalkWavePhase {
+        TalkWavePhase(state: coordinator.state, speaking: coordinator.hasActiveSpeech,
+                      replaying: coordinator.isReviewedPlaybackActive)
+    }
+
+    private func seat(_ side: SpeakerSide) -> some View {
+        let language = settings.value.pair.source(for: side)
+        return TalkParticipantPanel(
+            side: side, language: language, turns: coordinator.turns,
+            pending: coordinator.pendingDrafts, live: coordinator.draft,
+            canChangeLanguage: !pairControlsDisabled,
+            allowsCorrection: coordinator.canRequestLanguageCorrection,
+            playbackID: coordinator.reviewedPlaybackTurnID,
+            canReplay: coordinator.canReplayTranslation,
+            selectLanguage: { openLanguagePicker(for: side) },
+            correct: coordinator.swapLanguage, replay: coordinator.replayTranslation
+        )
     }
 
     @ViewBuilder
     private var setupNotice: some View {
-        if isCheckingInitialPair && !coordinator.isSessionActive {
-            ProgressView("Checking languages…")
-                .padding()
-        } else if shouldShowReadinessPanel {
-            readinessPanel
-                .transition(.move(edge: .top).combined(with: .opacity))
+        if needsLanguageSetup {
+            languageSetupLink
         } else if shouldShowVoiceNotice {
             voiceNotice
                 .transition(.move(edge: .top).combined(with: .opacity))
         }
+    }
+
+    private var needsLanguageSetup: Bool {
+        !coordinator.isSessionActive && !isCheckingInitialPair && !canOfferStart
+    }
+
+    private var languageSetupLink: some View {
+        Group {
+            if languagePacks.readiness.listenPair == .unavailable && canStartManualConversation {
+                NavigationLink {
+                    ConversationView(orchestrator: conversation, settings: settings, capabilities: capabilities)
+                } label: {
+                    Label("Use manual conversation", systemImage: "mic.badge.plus")
+                }
+            } else {
+                NavigationLink {
+                    LanguagePacksView(manager: languagePacks, settings: settings)
+                } label: {
+                    Label("Set up languages", systemImage: "arrow.down.circle")
+                }
+            }
+        }
+        .font(.subheadline)
+        .accessibilityIdentifier("talk.language-setup")
     }
 
     private var languageHeader: some View {
@@ -266,7 +392,7 @@ struct ContinuousConversationView: View {
         .padding(.horizontal, 16)
         .padding(.top, 8)
         .padding(.bottom, 12)
-        .background(Color(uiColor: .systemBackground))
+        .background(TranslatorTheme.canvas)
     }
 
     private func languageTile(
@@ -338,7 +464,7 @@ struct ContinuousConversationView: View {
     private var transcript: some View {
         ContinuousTranscriptView(
             turns: coordinator.turns,
-            draft: coordinator.draft,
+            draft: visibleDraft,
             pair: settings.value.pair,
             allowsLanguageCorrection: coordinator.canRequestLanguageCorrection,
             reviewedPlaybackTurnID: coordinator.reviewedPlaybackTurnID,
@@ -405,9 +531,9 @@ struct ContinuousConversationView: View {
                     primaryActionEnabled
                         ? TranslatorTheme.accent
                         : Color(uiColor: .systemGray4),
-                    in: Circle()
+                    in: RoundedRectangle(cornerRadius: diameter * 0.32)
                 )
-                .contentShape(Circle())
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(!primaryActionEnabled)
@@ -438,6 +564,10 @@ struct ContinuousConversationView: View {
 
     private var overflowMenu: some View {
         Menu {
+            if showsWaveLayout {
+                Button("Swap conversation languages", systemImage: "arrow.left.arrow.right", action: swapLanguagePair)
+                    .disabled(pairControlsDisabled)
+            }
             Button {
                 settings.useDefaultLanguage()
             } label: {
@@ -475,124 +605,6 @@ struct ContinuousConversationView: View {
         .accessibilityIdentifier("talk.more")
     }
 
-    private var readinessPanel: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Label("Offline setup", systemImage: "arrow.down.circle")
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                if languagePacks.isWorking {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-            }
-
-            ReadinessRow(
-                title: "Listen: \(settings.value.pair.traveler.displayName)",
-                value: selectedListenTravelerReadiness
-            )
-            ReadinessRow(
-                title: "Listen: \(settings.value.pair.local.displayName)",
-                value: selectedListenLocalReadiness
-            )
-            ReadinessRow(
-                title: "Listen together",
-                value: selectedListenPairReadiness
-            )
-            ReadinessRow(
-                title: "Translate: \(settings.value.pair.traveler.displayName) and \(settings.value.pair.local.displayName)",
-                value: combinedTranslationReadiness
-            )
-
-            if selectedListenPairReadiness == .unavailable {
-                if manualConversationReady {
-                    Label(
-                        "Continuous listening is unavailable; Manual Conversation is ready.",
-                        systemImage: "mic.badge.plus"
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                } else if manualVoiceSetupRequired {
-                    Label(
-                        "Continuous listening is unavailable; install Speak voices or turn off Auto Speak for Manual Conversation.",
-                        systemImage: "speaker.badge.exclamationmark"
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
-            }
-
-            if isPreparingSelectedPair {
-                if let message = languagePacks.progressMessage {
-                    Text(message)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                if let fraction = languagePacks.installationProgress {
-                    HStack {
-                        ProgressView(value: fraction)
-                        Text(
-                            fraction,
-                            format: .percent.precision(.fractionLength(0))
-                        )
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                    }
-                }
-                Button(role: .cancel) {
-                    installationTask?.cancel()
-                    installationTask = nil
-                    languagePacks.cancelInstallation()
-                } label: {
-                    Label("Cancel download", systemImage: "xmark.circle")
-                }
-            } else if isOtherLanguagePackOperationInProgress {
-                Label(
-                    "Finishing another language-pack operation",
-                    systemImage: "hourglass"
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            } else {
-                Button {
-                    let pair = settings.value.pair
-                    installationTask?.cancel()
-                    installationTask = Task {
-                        await languagePacks.install(pair)
-                    }
-                } label: {
-                    Label(
-                        readinessActionTitle,
-                        systemImage: readinessActionIcon
-                    )
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(TranslatorTheme.accent)
-                .disabled(
-                    !ContinuousModePolicy.supports(settings.value.pair)
-                        || hasUnavailableManualComponent
-                        || (selectedListenPairReadiness == .unavailable
-                            && (manualConversationReady
-                                || manualVoiceSetupRequired))
-                )
-            }
-
-            if let error = selectedPairErrorMessage {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(TranslatorTheme.softAccent)
-        .overlay(alignment: .bottom) {
-            Divider()
-        }
-        .accessibilityIdentifier("talk.offline-setup")
-    }
-
     private var voiceNotice: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "speaker.badge.exclamationmark")
@@ -613,17 +625,19 @@ struct ContinuousConversationView: View {
         .accessibilityElement(children: .combine)
     }
 
-    private var languagePicker: some View {
-        NavigationStack {
+    private func languagePicker(for side: SpeakerSide) -> some View {
+        let selected = settings.value.pair.source(for: side)
+        let choices = LocalConversationLanguagePolicy.availableLanguages(replacing: side, in: settings.value.pair)
+        return NavigationStack {
             List {
                 Section {
-                    ForEach(availablePickerLanguages) { language in
+                    ForEach(choices) { language in
                         Button {
-                            selectLanguage(language, for: languagePickerSide)
+                            selectLanguage(language, for: side)
                         } label: {
                             HStack(spacing: 12) {
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(language.nativeName)
+                                    Text(language.nativeName).font(.headline)
                                     if language.nativeName != language.displayName {
                                         Text(language.displayName)
                                             .font(.caption)
@@ -631,8 +645,8 @@ struct ContinuousConversationView: View {
                                     }
                                 }
                                 Spacer()
-                                if selectedPickerLanguage == language {
-                                    Image(systemName: "checkmark")
+                                if selected == language {
+                                    Image(systemName: "checkmark.circle.fill")
                                         .fontWeight(.semibold)
                                         .foregroundStyle(TranslatorTheme.accent)
                                 }
@@ -640,8 +654,10 @@ struct ContinuousConversationView: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .accessibilityAddTraits(selected == language ? .isSelected : [])
+                        .listRowBackground(selected == language ? TranslatorTheme.softAccent : TranslatorTheme.card)
                         .accessibilityIdentifier(
-                            "talk.\(languagePickerSide.rawValue)-language.\(language.code)"
+                            "talk.\(side.rawValue)-language.\(language.code)"
                         )
                     }
                 }
@@ -660,12 +676,14 @@ struct ContinuousConversationView: View {
                     }
                 }
             }
-            .navigationTitle(languagePickerTitle)
+            .scrollContentBackground(.hidden)
+            .background(TranslatorTheme.canvas)
+            .navigationTitle(side == .traveler ? "First Language" : "Second Language")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") {
-                        showLanguagePicker = false
+                        languagePickerSide = nil
                     }
                 }
             }
@@ -713,11 +731,28 @@ struct ContinuousConversationView: View {
         ContinuousTalkPresentation.primaryAction(for: coordinator.state)
     }
 
+    // A negative translation inventory at launch is provisional. Recheck on an
+    // explicit start before sending someone with working speech assets to setup.
+    private var canOfferStart: Bool {
+        if coreReady { return true }
+        let readiness = languagePacks.readiness
+        return !confirmedSetupNeeded && readiness.pair == settings.value.pair
+            && readiness.translationStrategy == settings.value.continuousTranslationStrategy
+            && ContinuousModePolicy.supports(settings.value.pair)
+            && readiness.listenTraveler == .ready && readiness.listenLocal == .ready && readiness.listenPair == .ready
+    }
+
+    private func resetStartCheck() {
+        recheckBeforeStarting = false
+        confirmedSetupNeeded = false
+    }
+
     private var primaryActionEnabled: Bool {
-        !coordinator.isReviewedPlaybackActive
+        !recheckBeforeStarting && !coordinator.isReviewedPlaybackActive
+            && (coordinator.state != .interrupted || (canOfferStart && !languagePacks.isWorking))
             && ContinuousTalkPresentation.isPrimaryActionEnabled(
             primaryAction,
-            coreReady: coreReady,
+            coreReady: canOfferStart,
             languagePackOperationInProgress: languagePacks.isWorking
         )
     }
@@ -754,7 +789,7 @@ struct ContinuousConversationView: View {
         let languageNames = ContinuousModePolicy.languageNames(
             for: settings.value.pair
         )
-        if !coreReady, primaryAction == .start || primaryAction == .retry {
+        if !canOfferStart, primaryAction == .start || primaryAction == .retry || coordinator.state == .interrupted {
             return "Download offline support for \(languageNames) first"
         }
         return switch primaryAction {
@@ -772,6 +807,14 @@ struct ContinuousConversationView: View {
     }
 
     private func performPrimaryAction() {
+        if !coreReady, canOfferStart, primaryAction == .start || primaryAction == .retry || coordinator.state == .interrupted {
+            recheckBeforeStarting = true
+        } else {
+            performReadyAction()
+        }
+    }
+
+    private func performReadyAction() {
         switch primaryAction {
         case .start:
             syncSpokenTranslationPreference()
@@ -795,14 +838,8 @@ struct ContinuousConversationView: View {
         )
     }
 
-    private var usesScrollableSetupLayout: Bool {
-        coordinator.turns.isEmpty
-            && !usesBottomDock
-            && (shouldShowReadinessPanel || shouldShowVoiceNotice)
-    }
-
     private var showsEndButton: Bool {
-        coordinator.isSessionActive
+        coordinator.isRunning
     }
 
     private var canEndSession: Bool {
@@ -812,12 +849,12 @@ struct ContinuousConversationView: View {
     private var emptyStateTitle: String {
         switch coordinator.state {
         case .idle:
-            isCheckingInitialPair ? "Preparing" : (coreReady ? "Ready to translate" : "Offline setup required")
+            isCheckingInitialPair || recheckBeforeStarting ? "Checking languages…" : (canOfferStart ? "Ready to translate" : "Language setup needed")
         case .preparing:
             "Preparing"
         case .pausing:
             "Finishing what you said"
-        case .pausedByUser:
+        case .pausedByUser, .interrupted:
             "Listening paused"
         case .resuming:
             "Resuming"
@@ -837,8 +874,8 @@ struct ContinuousConversationView: View {
     private var emptyStateMessage: String {
         switch coordinator.state {
         case .idle:
-            if isCheckingInitialPair { return "Checking this language pair." }
-            return coreReady
+            if isCheckingInitialPair || recheckBeforeStarting { return "Checking this language pair." }
+            return canOfferStart
                 ? "Tap the microphone and speak either language."
                 : "Download the selected languages to start."
         case .pausedByUser:
@@ -856,7 +893,7 @@ struct ContinuousConversationView: View {
         switch coordinator.state {
         case .failed:
             "exclamationmark.triangle"
-        case .pausedByUser:
+        case .pausedByUser, .interrupted:
             "pause.circle"
         case .pausedForPlayback:
             "speaker.wave.2.fill"
@@ -869,15 +906,8 @@ struct ContinuousConversationView: View {
 
     private var isCheckingInitialPair: Bool {
         !languagePacks.isWorking && (languagePacks.readiness.pair != settings.value.pair
+            || languagePacks.readiness.translationStrategy != settings.value.continuousTranslationStrategy
             || languagePacks.readiness.listenTraveler == .checking)
-    }
-
-    private var shouldShowReadinessPanel: Bool {
-        !coordinator.isSessionActive && !isCheckingInitialPair
-            && (!coreReady
-                || isPreparingSelectedPair
-                || isOtherLanguagePackOperationInProgress
-                || selectedPairErrorMessage != nil)
     }
 
     private var shouldShowVoiceNotice: Bool {
@@ -898,93 +928,14 @@ struct ContinuousConversationView: View {
     }
 
     private var coreReady: Bool {
-        ContinuousModePolicy.isReady(
-            pair: settings.value.pair,
-            readiness: languagePacks.readiness
-        )
+        languagePacks.readiness.translationStrategy == settings.value.continuousTranslationStrategy
+            && ContinuousModePolicy.isReady(pair: settings.value.pair, readiness: languagePacks.readiness)
     }
 
     private var voicesReady: Bool {
         languagePacks.readiness.pair == settings.value.pair
             && languagePacks.readiness.speakTraveler == .ready
             && languagePacks.readiness.speakLocal == .ready
-    }
-
-    private var combinedTranslationReadiness: ComponentReadiness {
-        combine(
-            selectedTranslateForwardReadiness,
-            selectedTranslateReverseReadiness
-        )
-    }
-
-    private var hasUnavailableManualComponent: Bool {
-        selectedListenTravelerReadiness == .unavailable
-            || selectedListenLocalReadiness == .unavailable
-            || selectedTranslateForwardReadiness == .unavailable
-            || selectedTranslateReverseReadiness == .unavailable
-    }
-
-    private var manualConversationReady: Bool {
-        languagePacks.readiness.pair == settings.value.pair
-            && languagePacks.readiness.isManualReady(
-                requiringVoices: settings.value.autoSpeak
-            )
-    }
-
-    private var manualVoiceSetupRequired: Bool {
-        languagePacks.readiness.pair == settings.value.pair
-            && settings.value.autoSpeak
-            && languagePacks.readiness.isManualReady(requiringVoices: false)
-            && !languagePacks.readiness.isManualReady(requiringVoices: true)
-    }
-
-    private var readinessActionTitle: String {
-        if hasUnavailableManualComponent {
-            return "Unavailable on this iPhone"
-        }
-        if selectedListenPairReadiness == .unavailable {
-            if manualConversationReady { return "Manual Conversation Ready" }
-            if manualVoiceSetupRequired {
-                return "Install Speak Voices or Turn Off Auto Speak"
-            }
-            return "Download and Verify Manual Setup"
-        }
-        return languagePacks.errorMessage == nil
-            ? "Download and Verify"
-            : "Retry Download"
-    }
-
-    private var readinessActionIcon: String {
-        if hasUnavailableManualComponent { return "xmark.circle.fill" }
-        if selectedListenPairReadiness == .unavailable
-            && manualConversationReady {
-            return "checkmark.circle.fill"
-        }
-        if selectedListenPairReadiness == .unavailable
-            && manualVoiceSetupRequired {
-            return "speaker.badge.exclamationmark"
-        }
-        return "arrow.down.circle.fill"
-    }
-
-    private var selectedListenTravelerReadiness: ComponentReadiness {
-        readinessForSelectedPair(\.listenTraveler)
-    }
-
-    private var selectedListenLocalReadiness: ComponentReadiness {
-        readinessForSelectedPair(\.listenLocal)
-    }
-
-    private var selectedListenPairReadiness: ComponentReadiness {
-        readinessForSelectedPair(\.listenPair)
-    }
-
-    private var selectedTranslateForwardReadiness: ComponentReadiness {
-        readinessForSelectedPair(\.translateForward)
-    }
-
-    private var selectedTranslateReverseReadiness: ComponentReadiness {
-        readinessForSelectedPair(\.translateReverse)
     }
 
     private var pairSupportsOnline: Bool {
@@ -1020,52 +971,19 @@ struct ContinuousConversationView: View {
     }
 
     private var pairControlsDisabled: Bool {
-        coordinator.isSessionActive || languagePacks.isWorking
-    }
-
-    private var isPreparingSelectedPair: Bool {
-        languagePacks.isWorking
-            && languagePacks.activeOperation == .pair(settings.value.pair)
-    }
-
-    private var isOtherLanguagePackOperationInProgress: Bool {
-        languagePacks.isWorking && !isPreparingSelectedPair
-    }
-
-    private var selectedPairErrorMessage: String? {
-        let pair = settings.value.pair
-        let travelerError = languagePacks.state(for: pair.traveler).errorMessage
-        let localError = languagePacks.state(for: pair.local).errorMessage
-        guard let travelerError, travelerError == localError else { return nil }
-        return travelerError
-    }
-
-    private var selectedPickerLanguage: AppLanguage {
-        settings.value.pair.source(for: languagePickerSide)
-    }
-
-    private var availablePickerLanguages: [AppLanguage] {
-        LocalConversationLanguagePolicy.availableLanguages(
-            replacing: languagePickerSide,
-            in: settings.value.pair
-        )
-    }
-
-    private var languagePickerTitle: String {
-        languagePickerSide == .traveler ? "First Language" : "Second Language"
+        coordinator.isSessionActive || languagePacks.isWorking || recheckBeforeStarting
     }
 
     private func openLanguagePicker(for side: SpeakerSide) {
         guard !pairControlsDisabled else { return }
         languagePickerSide = side
-        showLanguagePicker = true
     }
 
     private func selectLanguage(
         _ language: AppLanguage,
         for side: SpeakerSide
     ) {
-        showLanguagePicker = false
+        languagePickerSide = nil
         guard let pair = settings.value.pair.replacing(side, with: language),
               LocalConversationLanguagePolicy.supports(pair) else {
             return
@@ -1083,8 +1001,6 @@ struct ContinuousConversationView: View {
               pair != settings.value.pair else {
             return
         }
-        installationTask?.cancel()
-        installationTask = nil
         coordinator.cancelSession()
 
         var updatedSettings = settings.value
@@ -1101,15 +1017,6 @@ struct ContinuousConversationView: View {
         }
     }
 
-    private func readinessForSelectedPair(
-        _ keyPath: KeyPath<TripReadiness, ComponentReadiness>
-    ) -> ComponentReadiness {
-        guard languagePacks.readiness.pair == settings.value.pair else {
-            return .checking
-        }
-        return languagePacks.readiness[keyPath: keyPath]
-    }
-
     private func syncSpokenTranslationPreference() {
         coordinator.speakTranslations = settings.value.autoSpeak && voicesReady
     }
@@ -1123,7 +1030,7 @@ struct ContinuousConversationView: View {
             return oldState == .preparing
                 || oldState == .resuming
                 || oldState == .pausedForPlayback
-        case .pausedByUser, .ended, .failed:
+        case .pausedByUser, .interrupted, .ended, .failed:
             return true
         case .idle, .preparing, .pausing, .resuming, .catchingUp,
              .pausedForPlayback, .ending:
@@ -1131,19 +1038,7 @@ struct ContinuousConversationView: View {
         }
     }
 
-    private func combine(
-        _ first: ComponentReadiness,
-        _ second: ComponentReadiness
-    ) -> ComponentReadiness {
-        if first == .unavailable || second == .unavailable { return .unavailable }
-        if first == .downloading || second == .downloading { return .downloading }
-        if first == .downloadRequired || second == .downloadRequired {
-            return .downloadRequired
-        }
-        if first == .checking || second == .checking { return .checking }
-        if first == .ready && second == .ready { return .ready }
-        return .unknown
-    }
+
 }
 
 private struct ContinuousTranscriptView: View {
@@ -1260,14 +1155,6 @@ struct ContinuousTurnRow: View {
         alignsTrailing ? .trailing : .leading
     }
 
-    private var playbackPresentation: ContinuousTurnPlaybackPresentation {
-        .resolve(
-            isActive: isReviewedPlaybackActive,
-            canReplay: canReplayTranslation,
-            isSafetyBlocked: turn.warnings.contains(.entityMismatch)
-        )
-    }
-
     private var directionLabel: String {
         "\(languageName(turn.sourceLocale)) to \(languageName(turn.targetLocale))"
     }
@@ -1309,48 +1196,7 @@ struct ContinuousTurnRow: View {
                     .multilineTextAlignment(textAlignment)
                     .textSelection(.enabled)
 
-                if !turn.entities.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack {
-                            ForEach(Array(turn.entities.prefix(
-                                ConversationContentPolicy.maximumRenderedSafetyEntities
-                            ))) {
-                                EntityChip(entity: $0)
-                            }
-                        }
-                    }
-                }
-
-                if turn.warnings.contains(.entityMismatch) {
-                    Label(
-                        "Important details may not match",
-                        systemImage: "exclamationmark.shield.fill"
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                }
-
-                if requiresHindiEntityReview {
-                    Label(
-                        "Review important details before playing this translation",
-                        systemImage: "speaker.slash.fill"
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                }
-
-                if allowsLanguageCorrection,
-                   turn.languageReviewStatus == .needsReview,
-                   turn.alternateTranscript != nil {
-                    Button(action: onSwapLanguage) {
-                        Label(
-                            "Swap detected language",
-                            systemImage: "arrow.left.arrow.right"
-                        )
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
+                TalkTurnReview(turn: turn, allowsLanguageCorrection: allowsLanguageCorrection, onSwapLanguage: onSwapLanguage)
             }
             .frame(maxWidth: .infinity, alignment: alignsTrailing ? .trailing : .leading)
 
@@ -1403,6 +1249,91 @@ struct ContinuousTurnRow: View {
     }
 
     private var playbackButton: some View {
+        TalkReplayButton(turn: turn, isReviewedPlaybackActive: isReviewedPlaybackActive,
+                         canReplayTranslation: canReplayTranslation, onReplayTranslation: onReplayTranslation)
+    }
+}
+
+struct TalkTurnReview: View {
+    let turn: ConversationTurn
+    var readerLanguage: AppLanguage = .englishUS
+    let allowsLanguageCorrection: Bool
+    let onSwapLanguage: () -> Void
+
+    @ViewBuilder
+    var body: some View {
+        if !turn.entities.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack {
+                    ForEach(Array(turn.entities.prefix(
+                        ConversationContentPolicy.maximumRenderedSafetyEntities
+                    ))) {
+                        EntityChip(entity: $0)
+                    }
+                }
+            }
+        }
+
+        if turn.warnings.contains(.entityMismatch) {
+            Label(
+                ParticipantLabels(readerLanguage).mismatch,
+                systemImage: "exclamationmark.shield.fill"
+            )
+            .font(.caption)
+            .foregroundStyle(.orange)
+        }
+
+        if requiresHindiEntityReview {
+            Label(
+                ParticipantLabels(readerLanguage).reviewBeforePlaying,
+                systemImage: "speaker.slash.fill"
+            )
+            .font(.caption)
+            .foregroundStyle(.orange)
+        }
+
+        if allowsLanguageCorrection,
+           turn.languageReviewStatus == .needsReview,
+           turn.alternateTranscript != nil {
+            Button(action: onSwapLanguage) {
+                Label(
+                    ParticipantLabels(readerLanguage).swapLanguage,
+                    systemImage: "arrow.left.arrow.right"
+                )
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+    }
+
+    private var requiresHindiEntityReview: Bool {
+        isHindiBetaTurn
+            && !turn.entities.isEmpty
+            && !turn.warnings.contains(.entityMismatch)
+    }
+
+    private var isHindiBetaTurn: Bool {
+        turn.sourceLocale == AppLanguage.hindiIndia.code
+            || turn.targetLocale == AppLanguage.hindiIndia.code
+    }
+
+}
+
+struct TalkReplayButton: View {
+    let turn: ConversationTurn
+    let isReviewedPlaybackActive: Bool
+    let canReplayTranslation: Bool
+    let onReplayTranslation: () -> Void
+
+    private var playbackPresentation: ContinuousTurnPlaybackPresentation {
+        .resolve(
+            isActive: isReviewedPlaybackActive,
+            canReplay: canReplayTranslation,
+            isSafetyBlocked: turn.warnings.contains(.entityMismatch)
+        )
+    }
+
+    var body: some View {
         Button(action: onReplayTranslation) {
             Image(systemName: playbackPresentation.systemImage)
                 .font(.system(size: 20, weight: .semibold))
@@ -1458,23 +1389,12 @@ struct ContinuousTurnRow: View {
             "Important details may not match."
         }
     }
+}
 
-    private var requiresHindiEntityReview: Bool {
-        isHindiBetaTurn
-            && !turn.entities.isEmpty
-            && !turn.warnings.contains(.entityMismatch)
-    }
-
-    private var isHindiBetaTurn: Bool {
-        turn.sourceLocale == AppLanguage.hindiIndia.code
-            || turn.targetLocale == AppLanguage.hindiIndia.code
-    }
-
-    private func languageName(_ code: String) -> String {
-        AppLanguage.allCases.first(where: { $0.code == code })?.displayName
-            ?? Locale.current.localizedString(forIdentifier: code)
-            ?? code
-    }
+private func languageName(_ code: String) -> String {
+    AppLanguage.allCases.first(where: { $0.code == code })?.displayName
+        ?? Locale.current.localizedString(forIdentifier: code)
+        ?? code
 }
 
 private struct ContinuousDraftRow: View {

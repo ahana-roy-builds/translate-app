@@ -193,9 +193,8 @@ on-device Listen and Translation checks.
 Continuous translation defaults to Low Latency. Settings > Conversation can
 instead prefer High Fidelity for the next session. When Apple Intelligence is
 available, iOS can use it for that strategy; otherwise it can fall back to the
-traditional Low Latency model. The selection changes the requested strategy,
-not the installed-pack readiness result, and does not prove which model iOS
-ultimately resolved.
+traditional Low Latency model. Speak Duet checks and prepares the model for the selected strategy in both directions.
+iOS chooses the model used at runtime.
 
 The Speak translations preference is remembered. When enabled, capture pauses
 during playback and resumes afterward. The main control can also pause

@@ -1,6 +1,16 @@
 import Foundation
 @preconcurrency import Translation
 
+@available(iOS 26.4, *)
+extension OnDeviceTranslationStrategy {
+    var appleStrategy: TranslationSession.Strategy {
+        switch self {
+        case .lowLatency: .lowLatency
+        case .highFidelity: .highFidelity
+        }
+    }
+}
+
 @MainActor
 final class AppleTranslationEngine: TranslationEngine {
     private var session: TranslationSession?
@@ -13,24 +23,7 @@ final class AppleTranslationEngine: TranslationEngine {
     }
 
     func prepare(source: Locale.Language, target: Locale.Language) async throws {
-        if #available(iOS 26.4, *) {
-            switch strategy {
-            case .highFidelity:
-                self.session = TranslationSession(
-                    installedSource: source,
-                    target: target,
-                    preferredStrategy: .highFidelity
-                )
-            case .lowLatency:
-                self.session = TranslationSession(
-                    installedSource: source,
-                    target: target,
-                    preferredStrategy: .lowLatency
-                )
-            }
-        } else {
-            self.session = TranslationSession(installedSource: source, target: target)
-        }
+        session = installedSession(source: source, target: target)
         self.source = source
         self.target = target
     }
@@ -44,13 +37,39 @@ final class AppleTranslationEngine: TranslationEngine {
     }
 
     func availability(source: Locale.Language, target: Locale.Language) async -> ComponentReadiness {
-        let status = await LanguageAvailability().status(from: source, to: target)
-        return switch status {
-        case .installed: .ready
-        case .supported: .downloadRequired
-        case .unsupported: .unavailable
-        @unknown default: .unknown
+        let inventory: LanguageAvailability
+        if #available(iOS 26.4, *) {
+            inventory = LanguageAvailability(preferredStrategy: strategy.appleStrategy)
+        } else {
+            inventory = LanguageAvailability()
         }
+        let status = await inventory.status(from: source, to: target)
+        if status == .installed { return .ready }
+
+        // Cold inventory can report either "supported" or "unsupported" for a
+        // working direction. This session cannot request a download.
+        let installed = installedSession(source: source, target: target)
+        if await installed.isReady { return .ready }
+        guard let code = source.languageCode?.identifier,
+              let sample = Locale(identifier: code).localizedString(forLanguageCode: code) else { return .unknown }
+        do {
+            let response = try await installed.translate(sample)
+            return response.targetText.isEmpty ? .unknown : .ready
+        } catch TranslationError.notInstalled {
+            return .downloadRequired
+        } catch TranslationError.unsupportedLanguagePairing,
+                TranslationError.unsupportedSourceLanguage, TranslationError.unsupportedTargetLanguage {
+            return .unavailable
+        } catch {
+            return .unknown
+        }
+    }
+
+    private func installedSession(source: Locale.Language, target: Locale.Language) -> TranslationSession {
+        if #available(iOS 26.4, *) {
+            return TranslationSession(installedSource: source, target: target, preferredStrategy: strategy.appleStrategy)
+        }
+        return TranslationSession(installedSource: source, target: target)
     }
 
     func cancel() { session?.cancel(); session = nil }

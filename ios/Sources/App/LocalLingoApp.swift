@@ -20,8 +20,8 @@ struct LocalLingoApp: App {
                 if isActive {
                     container.access.refresh()
                     Task {
+                        container.languagePacks.invalidateCatalog()
                         await container.languagePacks.check(container.settings.value.pair)
-                        await container.languagePacks.refreshAll()
                     }
                 }
                 if isActive, container.capabilities.subscriptionsEnabled {

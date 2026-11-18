@@ -1,4 +1,5 @@
 import CoreMedia
+import Speech
 import XCTest
 @testable import LocalLingo
 
@@ -430,6 +431,23 @@ final class ContinuousSpeechRecognitionPolicyTests: XCTestCase {
         )
         accumulator.discard(before: CMTime(seconds: 1.1, preferredTimescale: 1_000))
         XCTAssertEqual(accumulator.transcript()?.text, "current")
+    }
+
+    func testBoundarySplitsTimedWordsAndKeepsBufferedReply() {
+        var accumulator = ContinuousRecognitionAccumulator()
+        var lastWord = AttributedString("thanks")
+        lastWord[AttributeScopes.SpeechAttributes.TimeRangeAttribute.self] = range(start: 0, duration: 1)
+        var reply = AttributedString("hola")
+        reply[AttributeScopes.SpeechAttributes.TimeRangeAttribute.self] = range(start: 1, duration: 0.5)
+        let words = lastWord + AttributedString(" ") + reply
+        accumulator.apply(range: range(start: 0, duration: 1.5), text: "thanks hola", isFinal: false,
+                          confidence: 0.9, lowConfidenceFraction: 0, timedText: words)
+        accumulator.apply(range: range(start: 1.5, duration: 0.5), text: "amiga", isFinal: false,
+                          confidence: 0.9, lowConfidenceFraction: 0, timedText: AttributedString("amiga"))
+        let firstTurn = range(start: 0, duration: 1)
+        XCTAssertEqual(accumulator.transcript(in: firstTurn)?.text, "thanks")
+        accumulator.retireLiveDraft(through: firstTurn.end)
+        XCTAssertEqual(accumulator.transcript()?.text, "hola amiga")
     }
 
     func testAccumulatorTreatsEmptyPointRevisionAsRetraction() {

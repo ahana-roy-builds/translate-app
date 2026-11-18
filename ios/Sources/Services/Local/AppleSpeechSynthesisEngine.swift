@@ -27,7 +27,14 @@ final class AppleSpeechSynthesisEngine: NSObject, SpeechSynthesisEngine, AVSpeec
     }
 
     func isVoiceAvailable(locale: Locale) -> Bool {
-        Self.voice(for: locale) != nil
+        Self.voice(for: locale, in: AVSpeechSynthesisVoice.speechVoices()) != nil
+    }
+
+    func availableVoices(for languages: [AppLanguage]) async -> Set<AppLanguage> {
+        await Task.detached(priority: .userInitiated) {
+            let voices = AVSpeechSynthesisVoice.speechVoices()
+            return Set(languages.filter { Self.voice(for: $0.locale, in: voices) != nil })
+        }.value
     }
 
     func speak(_ text: String, locale: Locale, rate: Float) async throws {
@@ -35,7 +42,7 @@ final class AppleSpeechSynthesisEngine: NSObject, SpeechSynthesisEngine, AVSpeec
         // MainActor time. Such a stale task must not cancel current playback.
         try Task.checkCancellation()
         cancel()
-        guard let voice = Self.voice(for: locale) else {
+        guard let voice = Self.voice(for: locale, in: AVSpeechSynthesisVoice.speechVoices()) else {
             throw PipelineError.assetsUnavailable("The Speak voice for \(locale.identifier) is not installed. Install it in Settings → Accessibility → Read & Speak → Voices.")
         }
         let utterance = AVSpeechUtterance(string: text)
@@ -170,8 +177,7 @@ final class AppleSpeechSynthesisEngine: NSObject, SpeechSynthesisEngine, AVSpeec
         playerContinuation = nil
     }
 
-    private static func voice(for locale: Locale) -> AVSpeechSynthesisVoice? {
-        let voices = AVSpeechSynthesisVoice.speechVoices()
+    private nonisolated static func voice(for locale: Locale, in voices: [AVSpeechSynthesisVoice]) -> AVSpeechSynthesisVoice? {
         if let exact = voices.first(where: {
             $0.language.caseInsensitiveCompare(locale.identifier) == .orderedSame
         }) { return exact }

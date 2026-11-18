@@ -1,7 +1,9 @@
 import AVFoundation
 import CoreMedia
+import Combine
 import Foundation
 import XCTest
+import Translation
 @testable import LocalLingo
 
 final class ContinuousModePolicyTests: XCTestCase {
@@ -1194,7 +1196,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
     }
 
     @MainActor
-    func testUserPauseFinalizesAndDrainsBeforeResumeStartsFreshInput() async {
+    func testUserPauseFinalizesAndDrainsBeforeResumeStartsFreshInput() async throws {
         let firstRange = CMTimeRange(
             start: .zero,
             duration: CMTime(seconds: 1, preferredTimescale: 1_000)
@@ -1208,6 +1210,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
                 [.speechEnded(range: firstRange, reason: .silence)],
                 [.speechEnded(range: secondRange, reason: .silence)]
             ],
+            processBatches: [[.speechStarted(at: .zero)]],
             decisions: [
                 Self.decision(text: "hello"),
                 Self.decision(text: "good morning")
@@ -1220,6 +1223,8 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
         XCTAssertTrue(harness.coordinator.isSessionActive)
         XCTAssertTrue(harness.coordinator.isCaptureActive)
 
+        let previousDraft = harness.recognition.onDraft
+        let previousFailure = harness.recognition.onFailure
         harness.coordinator.pauseSession()
         let firstPauseFinished = await waitUntil {
             harness.coordinator.state == .pausedByUser
@@ -1235,6 +1240,13 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
         harness.coordinator.resumeSession()
         let resumed = await waitUntil { harness.coordinator.state == .listening }
         XCTAssertTrue(resumed)
+        _ = try await harness.capture.emitBuffer()
+        let reply = ContinuousDraft(language: .spanishSpain, text: "Buenos días", confidence: 1, score: 1)
+        harness.recognition.onDraft?(reply)
+        previousDraft?(nil)
+        previousFailure?(PipelineError.server("Retired stream"))
+        XCTAssertEqual(harness.coordinator.draft, reply)
+        XCTAssertEqual(harness.coordinator.state, .listening)
         XCTAssertEqual(harness.capture.startCount, 2)
         XCTAssertEqual(harness.recognition.startCount, 2)
         XCTAssertEqual(harness.coordinator.turns.map(\.sequence), [0])
@@ -1316,12 +1328,23 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
 #else
         let pair = LanguagePair(traveler: .englishUS, local: .spanishSpain)
         let speech = AppleSpeechRecognitionEngine()
-        let translation = AppleTranslationEngine()
         let listen = await speech.continuousAssetReadiness(pair: pair)
-        let forward = await translation.availability(source: pair.traveler.language, target: pair.local.language)
-        let reverse = await translation.availability(source: pair.local.language, target: pair.traveler.language)
-        try XCTSkipUnless(listen == .ready && forward == .ready && reverse == .ready,
-                          "English/Spanish device assets: listen \(listen), forward \(forward), reverse \(reverse).")
+        try XCTSkipUnless(listen == .ready, "English/Spanish device speech assets: \(listen).")
+        // Probe the same installed-only strategy as Talk. Inventory can report
+        // downloadRequired on launch even when these sessions can translate.
+        let translation = AppleTranslationEngine(strategy: .lowLatency)
+        do {
+            _ = try await translation.translate("Good morning", source: pair.traveler.language, target: pair.local.language)
+            _ = try await translation.translate("Gracias", source: pair.local.language, target: pair.traveler.language)
+        } catch TranslationError.notInstalled {
+            throw XCTSkip("Install the English/Spanish translation languages on this iPhone.")
+        }
+        for side in [SpeakerSide.traveler, .local] {
+            let readiness = await translation.availability(source: pair.source(for: side).language,
+                                                           target: pair.target(for: side).language)
+            XCTAssertEqual(readiness, .ready, "Talk must allow a direction the installed model just translated")
+        }
+        translation.cancel()
         let synthesis = AppleSpeechSynthesisEngine()
         let voicesReady = synthesis.isVoiceAvailable(locale: pair.traveler.locale)
             && synthesis.isVoiceAvailable(locale: pair.local.locale)
@@ -1354,10 +1377,29 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
             let recording = try AVAudioFile(forReading: url)
             let format = recording.processingFormat
             let started = ContinuousClock.now
+            var firstDraftAt: ContinuousClock.Instant?
+            var firstPendingAt: ContinuousClock.Instant?
+            var committedAt: ContinuousClock.Instant?
+            let pending = coordinator.$pendingDrafts.sink { bySequence in
+                if bySequence[index] != nil, firstPendingAt == nil { firstPendingAt = .now }
+            }
+            let drafts = coordinator.$draft.sink { draft in
+                if draft != nil, firstDraftAt == nil { firstDraftAt = .now }
+            }
+            let commits = coordinator.$turns.sink { turns in
+                if turns.count == index + 1 { committedAt = .now }
+            }
+            defer { drafts.cancel(); pending.cancel(); commits.cancel() }
+            // Allow enough continuous audio for Apple's progressive results on a cold device.
+            var remainingRepeats = index == 2 ? 2 : 0
             var speechFileEnded = started
             for _ in 0..<500 {
                 // AnalyzerInput retains the buffer until the system consumes it.
                 let chunk = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1024))
+                if recording.framePosition == recording.length, remainingRepeats > 0 {
+                    recording.framePosition = 0
+                    remainingRepeats -= 1
+                }
                 if recording.framePosition < recording.length {
                     try recording.read(into: chunk, frameCount: 1024)
                     speechFileEnded = .now
@@ -1374,15 +1416,129 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
                 try await Task.sleep(for: .seconds(Double(chunk.frameLength) / format.sampleRate))
             }
             try await waitFor { coordinator.turns.count == index + 1 && coordinator.state == .listening && harness.capture.isActive }
+            let firstDraft = try XCTUnwrap(firstDraftAt ?? firstPendingAt, "Turn must show source words before translation")
+            if index == 2 { XCTAssertNotNil(firstDraftAt, "Sustained speech must show words while the utterance is open") }
+            let commit = try XCTUnwrap(committedAt)
+            XCTAssertLessThan(firstDraft, commit)
+            print("Turn \(index + 1) first draft \(started.duration(to: firstDraft)), last speech buffer to commit \(speechFileEnded.duration(to: commit))")
             let turn = coordinator.turns[index]
             XCTAssertEqual(turn.speaker, index == 1 ? .local : .traveler)
             XCTAssertFalse(turn.translatedText.isEmpty)
             print("Device turn \(index + 1), Auto Speak \(coordinator.speakTranslations), listening \(speechFileEnded.duration(to: .now)) after the last speech buffer")
         }
+        let completedTurns = coordinator.turns
+        coordinator.handleSceneActivity(isActive: false)
+        coordinator.handleSceneActivity(isActive: true)
+        XCTAssertEqual(coordinator.state, .interrupted)
+        if voicesReady {
+            for turn in completedTurns.prefix(2) {
+                XCTAssertTrue(coordinator.canReplayTranslation(for: turn))
+                coordinator.replayTranslation(for: turn.id)
+                try await waitFor { !coordinator.isReviewedPlaybackActive }
+                XCTAssertNil(coordinator.errorMessage)
+                XCTAssertFalse(coordinator.isCaptureActive)
+            }
+        }
+        coordinator.resumeSession()
+        try await waitFor { coordinator.state == .listening }
+        XCTAssertEqual(coordinator.turns, completedTurns)
         coordinator.endSession()
         try await waitFor { coordinator.state == .ended }
         XCTAssertEqual(coordinator.turns.count, 3)
 #endif
+    }
+
+    @MainActor
+    func testLateDraftCannotBlockReplayAndUnlockKeepsMicrophoneOff() async throws {
+        let end = CMTime(seconds: 1, preferredTimescale: 16000)
+        let h = makeHarness(
+            finishBatches: [], processBatches: [[.speechStarted(at: .zero),
+                .speechEnded(range: CMTimeRange(start: .zero, end: end), reason: .silence)]],
+            decisions: [Self.decision(text: "Hi, how are you?")], translations: ["Hola, ¿cómo estás?"]
+        )
+        let session = h.coordinator
+        session.start(pair: h.pair)
+        defer { session.cancelSession() }
+        await assertEventually { session.state == .listening }
+        _ = try await h.capture.emitBuffer()
+        await assertEventually { session.turns.count == 1 && session.canReplayTranslation(for: session.turns[0]) }
+
+        let turn = try XCTUnwrap(session.turns.first)
+        h.recognition.onDraft?(ContinuousDraft(language: .spanishSpain, text: "How.", confidence: 0.5, score: 0.5))
+        XCTAssertNil(session.draft)
+        XCTAssertEqual(turn.translatedText, "Hola, ¿cómo estás?")
+        XCTAssertTrue(session.canReplayTranslation(for: turn))
+
+        h.synthesis.blocksSpeech = true
+        session.replayTranslation(for: turn.id)
+        await assertEventually { !h.synthesis.spoken.isEmpty }
+        session.handleSceneActivity(isActive: false)
+        XCTAssertEqual(session.state, .interrupted)
+        XCTAssertNil(session.reviewedPlaybackTurnID)
+        XCTAssertFalse(session.canReplayTranslation(for: turn))
+
+        session.handleSceneActivity(isActive: true)
+        XCTAssertTrue(session.canReplayTranslation(for: turn))
+        session.replayTranslation(for: turn.id)
+        await assertEventually { h.synthesis.spoken.count == 2 }
+        session.resumeSession()
+        XCTAssertEqual(h.capture.startCount, 1)
+        h.synthesis.finishBlockedSpeech()
+        await assertEventually { !session.isReviewedPlaybackActive }
+        XCTAssertEqual(session.state, .interrupted)
+        XCTAssertFalse(session.isCaptureActive)
+        XCTAssertEqual(session.turns.map(\.id), [turn.id])
+
+        session.resumeSession()
+        await assertEventually { session.state == .listening }
+        XCTAssertEqual(h.capture.startCount, 2)
+        XCTAssertEqual(session.turns.map(\.id), [turn.id])
+    }
+
+    @MainActor
+    func testLiveReplySurvivesEarlierTranslationAndLayoutSwitch() async throws {
+        let end = CMTime(seconds: 1, preferredTimescale: 16000)
+        let h = makeHarness(
+            finishBatches: [], processBatches: [[.speechStarted(at: .zero)],
+                [.speechEnded(range: CMTimeRange(start: .zero, end: end), reason: .silence)],
+                [.speechStarted(at: end)]],
+            decisions: [Self.decision(text: "Where is the station?")],
+            translations: ["¿Dónde está la estación?"]
+        )
+        h.coordinator.start(pair: h.pair)
+        defer { h.coordinator.cancelSession() }
+        await assertEventually { h.coordinator.state == .listening }
+        let first = ContinuousDraft(language: .englishUS, text: "Where is the station?", confidence: 1, score: 1)
+        let reply = ContinuousDraft(language: .spanishSpain, text: "A cinco", confidence: 1, score: 1)
+        _ = try await h.capture.emitBuffer()
+        h.recognition.snapshot = first
+        h.recognition.onDraft?(first)
+        XCTAssertEqual(h.coordinator.draft, first)
+        XCTAssertTrue(h.coordinator.turns.isEmpty)
+        h.recognition.delayFinalization = true
+        h.translation.delayNextTranslation = true
+        _ = try await h.capture.emitBuffer()
+        await assertEventually { h.recognition.resumeFinalization != nil }
+        XCTAssertEqual(h.coordinator.pendingDrafts[0]?.text, first.text)
+        h.recognition.snapshot = reply
+        h.recognition.onDraft?(reply)
+        XCTAssertNil(h.coordinator.draft)
+        _ = try await h.capture.emitBuffer()
+        XCTAssertEqual(h.coordinator.draft, reply)
+        h.settings.value.talkLayout = .heldPhone
+        XCTAssertTrue(h.coordinator.hasActiveSpeech)
+        let revision = ContinuousDraft(language: .englishUS, text: "Where is the station", confidence: 0.9, score: 0.9)
+        h.recognition.onClosingRevision?(revision)
+        XCTAssertEqual(h.coordinator.pendingDrafts[0], revision)
+        XCTAssertEqual(h.coordinator.draft, reply)
+        h.recognition.resumeFinalization?.resume()
+        await assertEventually { h.translation.resumeTranslation != nil }
+        h.translation.resumeTranslation?.resume()
+        await assertEventually { h.coordinator.turns.count == 1 }
+        XCTAssertEqual(h.coordinator.draft, reply)
+        XCTAssertTrue(h.coordinator.pendingDrafts.isEmpty)
+        XCTAssertEqual(h.capture.startCount, 1)
+        XCTAssertEqual(h.coordinator.turns.first?.translatedText, "¿Dónde está la estación?")
     }
 
     @MainActor
@@ -1687,6 +1843,12 @@ private actor FakeContinuousVoiceActivity: VoiceActivityDetecting {
 @MainActor
 private final class FakeContinuousRecognition: ContinuousSpeechRecognizing {
     private var decisions: [LanguageDecision]
+    var onDraft: ((ContinuousDraft?) -> Void)?
+    var onFailure: ((Error) -> Void)?
+    var onClosingRevision: ((ContinuousDraft?) -> Void)?
+    var snapshot: ContinuousDraft?
+    var delayFinalization = false
+    var resumeFinalization: CheckedContinuation<Void, Never>?
     var startError: Error?
     private(set) var startCount = 0
     private(set) var finishInputCount = 0
@@ -1700,11 +1862,24 @@ private final class FakeContinuousRecognition: ContinuousSpeechRecognizing {
         onDraft: @escaping @MainActor (ContinuousDraft?) -> Void,
         onFailure: @escaping @MainActor (Error) -> Void
     ) async throws {
+        self.onDraft = onDraft
+        self.onFailure = onFailure
         startCount += 1
         if let startError { throw startError }
     }
 
     func append(_ buffer: AVAudioPCMBuffer, at audioTime: AVAudioTime?) throws {}
+
+    func beginUtterance(at start: CMTime) {
+        onDraft?(snapshot)
+    }
+
+    func takeDraft(in range: CMTimeRange, onRevision: @escaping @MainActor (ContinuousDraft?) -> Void) -> ContinuousDraft? {
+        onClosingRevision = onRevision
+        defer { snapshot = nil }
+        onDraft?(nil)
+        return snapshot
+    }
 
     func finishInput() throws -> CMTime? {
         finishInputCount += 1
@@ -1712,6 +1887,11 @@ private final class FakeContinuousRecognition: ContinuousSpeechRecognizing {
     }
 
     func finalizeUtterance(in range: CMTimeRange) async throws -> LanguageDecision {
+        if delayFinalization {
+            delayFinalization = false
+            await withCheckedContinuation { resumeFinalization = $0 }
+            resumeFinalization = nil
+        }
         guard !decisions.isEmpty else { throw PipelineError.noSpeech }
         return decisions.removeFirst()
     }
@@ -1733,6 +1913,8 @@ private final class FakeContinuousTranslation: ContinuousBidirectionalTranslatin
         let pair: LanguagePair
     }
 
+    var delayNextTranslation = false
+    var resumeTranslation: CheckedContinuation<Void, Never>?
     var prepareError: Error?
     private var translations: [String]
     private(set) var preparations: [Preparation] = []
@@ -1756,6 +1938,11 @@ private final class FakeContinuousTranslation: ContinuousBidirectionalTranslatin
         pair: LanguagePair
     ) async throws -> String {
         calls.append(Call(text: text, speaker: speaker, pair: pair))
+        if delayNextTranslation {
+            delayNextTranslation = false
+            await withCheckedContinuation { resumeTranslation = $0 }
+            resumeTranslation = nil
+        }
         return translations.isEmpty ? "translated \(text)" : translations.removeFirst()
     }
 

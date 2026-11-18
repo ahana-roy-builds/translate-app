@@ -58,17 +58,18 @@ final class AppContainer: ObservableObject {
         self.capabilities = capabilities
         self.settings = settings; self.subscription = subscription; self.network = network; self.history = history; onlineClient = client
         var packSpeech: any SpeechAssetManaging = speech
-        var packTranslation: any TranslationEngine = translation
+        var packEngine: (OnDeviceTranslationStrategy) -> any TranslationEngine = { AppleTranslationEngine(strategy: $0) }
 #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("SpeakDuet.UITests") {
             let assets = UITestLanguageAssets()
             packSpeech = assets
-            packTranslation = assets
+            packEngine = { _ in assets }
         }
 #endif
         languagePacks = LanguagePackManager(
             speech: packSpeech,
-            translation: packTranslation,
+            translationForStrategy: packEngine,
+            preferredStrategy: { settings.value.continuousTranslationStrategy },
             synthesis: synthesis
         )
         conversation = ConversationOrchestrator(
@@ -129,7 +130,13 @@ private final class UITestLanguageAssets: SpeechAssetManaging, TranslationEngine
         onProgress(1)
     }
 
-    func availability(source: Locale.Language, target: Locale.Language) async -> ComponentReadiness { .ready }
+    func availability(source: Locale.Language, target: Locale.Language) async -> ComponentReadiness {
+        if ProcessInfo.processInfo.arguments.contains("SpeakDuet.UITests.missingFrenchTranslation"),
+           [source, target].contains(where: { $0.languageCode?.identifier == "fr" }) {
+            return .downloadRequired
+        }
+        return .ready
+    }
     func prepare(source: Locale.Language, target: Locale.Language) async throws {}
     func translate(_ text: String, source: Locale.Language, target: Locale.Language) async throws -> String {
         throw PipelineError.noSpeech
@@ -140,6 +147,12 @@ private final class UITestLanguageAssets: SpeechAssetManaging, TranslationEngine
 // Isolated UI-test state; this type and launch argument have no release path.
 private final class UITestFreeAccessStorage: FreeAccessStorage {
     private var data: Data?
+    init() {
+        if ProcessInfo.processInfo.arguments.contains("SpeakDuet.UITests.expired") {
+            let start = Date().addingTimeInterval(-FreeAccessRecord.duration - 60)
+            data = try? JSONEncoder().encode(FreeAccessRecord(startedAt: start))
+        }
+    }
     func read() throws -> Data? { data }
     func write(_ data: Data) throws { self.data = data }
 }

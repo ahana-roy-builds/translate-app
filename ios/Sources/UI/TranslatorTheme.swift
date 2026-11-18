@@ -2,28 +2,46 @@ import SwiftUI
 import UIKit
 
 enum TranslatorTheme {
-    static var accent: Color {
-        adaptive(
-            light: UIColor(red: 15 / 255, green: 118 / 255, blue: 110 / 255, alpha: 1),
-            dark: UIColor(red: 94 / 255, green: 234 / 255, blue: 212 / 255, alpha: 1)
-        )
-    }
-
-    static var onAccent: Color {
-        adaptive(
-            light: .white,
-            dark: UIColor(red: 4 / 255, green: 47 / 255, blue: 46 / 255, alpha: 1)
-        )
-    }
-
-    static var success: Color { accent }
+    static let accent = adaptive(0x3949AA, 0xAAB8FF)
+    static let onAccent = adaptive(0xFFFFFF, 0x121B3D)
+    static let canvas = adaptive(0xF0F1FB, 0x151A30)
+    static let partnerPanel = adaptive(0xE4E8FB, 0x1D2441)
+    static let card = adaptive(0xFFFFFF, 0x293154)
+    static let ink = adaptive(0x1E2452, 0xF1F2FF)
+    static let muted = adaptive(0x535D7C, 0xC1C7E3)
+    static let edge = adaptive(0xC9CDE2, 0x444D72)
+    static let ribbon = adaptive(0x2C346E, 0x10162C)
+    static let signal = Color(red: 192 / 255, green: 202 / 255, blue: 1)
+    static let success = adaptive(0x176448, 0x92DBC0)
     static var softAccent: Color { accent.opacity(0.12) }
-    static let cornerRadius: CGFloat = 8
+    static let cornerRadius: CGFloat = 16
 
-    private static func adaptive(light: UIColor, dark: UIColor) -> Color {
+    private static func adaptive(_ light: UInt32, _ dark: UInt32) -> Color {
         Color(uiColor: UIColor { traits in
-            traits.userInterfaceStyle == .dark ? dark : light
+            let rgb = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(red: CGFloat((rgb >> 16) & 255) / 255,
+                           green: CGFloat((rgb >> 8) & 255) / 255,
+                           blue: CGFloat(rgb & 255) / 255, alpha: 1)
         })
+    }
+}
+
+extension View {
+    func relayCard(fill: Color = TranslatorTheme.card, border: Color = TranslatorTheme.edge,
+                   radius: CGFloat = TranslatorTheme.cornerRadius) -> some View {
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        return background(fill, in: shape)
+            .overlay { shape.strokeBorder(border, lineWidth: 1).allowsHitTesting(false) }
+    }
+}
+
+extension AppAppearance {
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .automatic: nil
+        case .light: .light
+        case .dark: .dark
+        }
     }
 }
 
@@ -77,7 +95,7 @@ struct ReadinessRow: View {
         case .ready: "Ready"
         case .checking: "Checking"
         case .downloading: "Downloading"
-        case .downloadRequired: "Download"
+        case .downloadRequired: "Download needed"
         case .unavailable: "Unavailable"
         case .unknown: "Unknown"
         }

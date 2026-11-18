@@ -10,6 +10,33 @@ final class LanguagePackManagerTests: XCTestCase {
         local: .japaneseJapan
     )
 
+    func testCatalogIsSharedAcrossNavigationUntilAssetsChange() async {
+        let speech = FakeSpeechAssetManager(readiness: readySpeechReadiness)
+        let voices = FakeTripPackSynthesisEngine(availableLocaleIDs: ["en-US", "es-ES"])
+        let manager = makeManager(speech: speech, synthesis: voices)
+        await manager.check(spanishPair)
+        let pairReads = speech.readinessCalls
+        speech.blocksNextReadiness = true
+        let list = Task { await manager.loadCatalogIfNeeded() }
+        await waitUntil { speech.readinessStarted }
+        let detail = Task { await manager.loadCatalogIfNeeded() }
+        await Task.yield()
+        speech.resumeReadiness()
+        await list.value
+        await detail.value
+        await manager.checkIfNeeded(spanishPair)
+        await manager.loadCatalogIfNeeded()
+
+        let catalogReads = AppLanguage.conversationLanguages.map { $0.locale.identifier }
+        XCTAssertEqual(speech.readinessCalls, pairReads + catalogReads)
+        XCTAssertEqual(manager.state(for: .spanishSpain).speakReadiness, .ready)
+        voices.availableLocaleIDs.remove("es-ES")
+        manager.invalidateCatalog()
+        await manager.loadCatalogIfNeeded()
+        XCTAssertEqual(speech.readinessCalls, pairReads + catalogReads + catalogReads)
+        XCTAssertEqual(manager.state(for: .spanishSpain).speakReadiness, .downloadRequired)
+    }
+
     func testRecheckPreservesLastResultUntilMissingAssetConfirmed() async {
         let speech = FakeSpeechAssetManager(readiness: readySpeechReadiness)
         let manager = makeManager(speech: speech)
@@ -28,6 +55,30 @@ final class LanguagePackManagerTests: XCTestCase {
         await probe.value
         await coalesced.value
         XCTAssertEqual(manager.readiness.listenTraveler, .downloadRequired)
+    }
+
+    func testSamePairChecksAndPreparesTheSelectedTranslationModel() async throws {
+        let settings = SettingsStore(defaults: isolatedDefaults())
+        let installed = FakeTripPackTranslationEngine([.ready])
+        let missing = FakeTripPackTranslationEngine([.downloadRequired])
+        let manager = LanguagePackManager(
+            speech: FakeSpeechAssetManager(readiness: readySpeechReadiness),
+            translationForStrategy: { $0 == .lowLatency ? installed : missing },
+            preferredStrategy: { settings.value.continuousTranslationStrategy },
+            synthesis: FakeTripPackSynthesisEngine(availableLocaleIDs: ["en-US", "es-ES"]),
+            defaults: isolatedDefaults()
+        )
+        await manager.check(spanishPair)
+        XCTAssertTrue(manager.readiness.isReady)
+        settings.value.continuousTranslationStrategy = .highFidelity
+        await manager.check(spanishPair)
+        XCTAssertEqual(manager.readiness.translationStrategy, .highFidelity)
+        XCTAssertEqual(manager.readiness.translateForward, .downloadRequired)
+        XCTAssertEqual(manager.readiness.translateReverse, .downloadRequired)
+        await manager.install(spanishPair)
+        let config = try XCTUnwrap(manager.translationDownloadConfiguration)
+        if #available(iOS 26.4, *) { XCTAssertEqual(config.preferredStrategy, .highFidelity) }
+        manager.cancelInstallation()
     }
 
     func testCheckSupportsNonEnglishPairAndUsesExactTranslationDirections() async {
@@ -642,6 +693,84 @@ final class LanguagePackManagerTests: XCTestCase {
         XCTAssertFalse(manager.isWorking)
     }
 
+    func testHindiDetailDownloadsOnlyHindiAndPreservesSelectedPair() async {
+        let speech = FakeSpeechAssetManager(
+            readiness: readySpeechReadiness.merging(["hi-IN": .downloadRequired]) { _, new in new }
+        )
+        let manager = makeManager(speech: speech)
+        await manager.check(spanishPair)
+        let selectedReadiness = manager.readiness
+        speech.blocksInstallation = true
+        speech.postInstallReadiness = ["hi-IN": .ready]
+
+        manager.downloadListen(for: .hindiIndia, protecting: spanishPair)
+        await waitUntil { speech.installStarted }
+        XCTAssertTrue(manager.isDownloadingListen(for: .hindiIndia))
+        XCTAssertEqual(manager.state(for: .hindiIndia).listenReadiness, .downloading)
+        XCTAssertEqual(manager.installationProgress, speech.installProgress)
+        manager.downloadListen(for: .hindiIndia, protecting: spanishPair)
+        speech.resumeInstallation()
+        await waitUntil { !manager.isWorking }
+
+        XCTAssertEqual(speech.installCalls, ["hi-IN"])
+        XCTAssertTrue(manager.state(for: .hindiIndia).isListenReady)
+        XCTAssertEqual(manager.readiness, selectedReadiness)
+        XCTAssertTrue(speech.continuousInstallCalls.isEmpty)
+        XCTAssertTrue(speech.releaseCalls.isEmpty)
+        XCTAssertNil(manager.translationDownloadConfiguration)
+    }
+
+    func testSingleLanguageCancellationAndFailedVerificationAllowRetry() async {
+        let speech = FakeSpeechAssetManager(readiness: ["hi-IN": .downloadRequired])
+        let manager = makeManager(speech: speech)
+        speech.blocksInstallation = true
+        manager.downloadListen(for: .hindiIndia, protecting: spanishPair)
+        await waitUntil { speech.installStarted }
+        manager.cancelInstallation()
+        XCTAssertFalse(manager.isWorking)
+        XCTAssertEqual(manager.state(for: .hindiIndia).listenReadiness, .downloadRequired)
+
+        speech.blocksInstallation = false
+        manager.downloadListen(for: .hindiIndia, protecting: spanishPair)
+        await waitUntil { !manager.isWorking }
+        XCTAssertNotNil(manager.state(for: .hindiIndia).errorMessage)
+        XCTAssertFalse(manager.state(for: .hindiIndia).isListenReady)
+        speech.postInstallReadiness = ["hi-IN": .ready]
+        manager.downloadListen(for: .hindiIndia, protecting: spanishPair)
+        await waitUntil { !manager.isWorking }
+        XCTAssertTrue(manager.state(for: .hindiIndia).isListenReady)
+        XCTAssertNil(manager.state(for: .hindiIndia).errorMessage)
+    }
+
+    func testSingleLanguageCannotEvictEitherSelectedLanguageWhenFull() async {
+        let speech = FakeSpeechAssetManager(
+            readiness: readySpeechReadiness, maximumReservedLocales: 2
+        )
+        let manager = makeManager(speech: speech)
+        manager.downloadListen(for: .hindiIndia, protecting: spanishPair)
+        await waitUntil { !manager.isWorking }
+        XCTAssertTrue(speech.releaseCalls.isEmpty)
+        XCTAssertTrue(speech.installCalls.isEmpty)
+        XCTAssertNotNil(manager.state(for: .hindiIndia).errorMessage)
+    }
+
+    func testSelectingEnglishHindiDuringDetailDownloadVerifiesTheNewPair() async {
+        let speech = FakeSpeechAssetManager(readiness: readySpeechReadiness)
+        let manager = makeManager(speech: speech)
+        await manager.check(spanishPair)
+        speech.blocksInstallation = true
+        speech.postInstallReadiness = ["hi-IN": .ready]
+        manager.downloadListen(for: .hindiIndia, protecting: spanishPair)
+        await waitUntil { speech.installStarted }
+        let newPair = LanguagePair(traveler: .englishUS, local: .hindiIndia)
+        let selection = Task { await manager.check(newPair) }
+        await Task.yield()
+        speech.resumeInstallation()
+        await selection.value
+        XCTAssertEqual(manager.readiness.pair, newPair)
+        XCTAssertTrue(manager.readiness.isManualReady(requiringVoices: false))
+    }
+
     func testInstallInvalidatesCatalogRefreshUsingOlderInventory() async {
         let speech = FakeSpeechAssetManager(
             readiness: readySpeechReadiness,
@@ -650,7 +779,7 @@ final class LanguagePackManagerTests: XCTestCase {
         let manager = makeManager(speech: speech)
         speech.blocksNextReadiness = true
 
-        let refresh = Task { await manager.refreshAll() }
+        let refresh = Task { await manager.loadCatalogIfNeeded() }
         await waitUntil { speech.readinessStarted }
         await manager.install(spanishPair)
         speech.resumeReadiness()
@@ -674,7 +803,7 @@ final class LanguagePackManagerTests: XCTestCase {
         await manager.check(spanishPair)
         speech.blocksNextReadiness = true
 
-        let refresh = Task { await manager.refreshAll() }
+        let refresh = Task { await manager.loadCatalogIfNeeded() }
         await waitUntil { speech.readinessStarted }
         await manager.releaseListen(for: .frenchFrance)
         speech.resumeReadiness()
@@ -806,7 +935,8 @@ final class LanguagePackManagerTests: XCTestCase {
     ) -> LanguagePackManager {
         LanguagePackManager(
             speech: speech,
-            translation: translation,
+            translationForStrategy: { _ in translation },
+            preferredStrategy: { .lowLatency },
             synthesis: synthesis,
             defaults: defaults ?? isolatedDefaults(),
             now: now
@@ -848,6 +978,7 @@ private final class FakeSpeechAssetManager: SpeechAssetManaging {
     var continuousInstallError: Error?
     let maximumReservedLocales: Int
     private(set) var installCalls: [String] = []
+    private(set) var readinessCalls: [String] = []
     private(set) var continuousInstallCalls: [LanguagePair] = []
     private(set) var reserveCalls: [String] = []
     private(set) var releaseCalls: [String] = []
@@ -883,6 +1014,7 @@ private final class FakeSpeechAssetManager: SpeechAssetManaging {
     }
 
     func assetReadiness(locale: Locale) async -> ComponentReadiness {
+        readinessCalls.append(locale.identifier)
         if blocksNextReadiness {
             blocksNextReadiness = false
             await withCheckedContinuation { continuation in
@@ -1078,7 +1210,7 @@ private final class FakeTripPackTranslationEngine: TranslationEngine {
 
 @MainActor
 private final class FakeTripPackSynthesisEngine: SpeechSynthesisEngine {
-    private let availableLocaleIDs: Set<String>
+    var availableLocaleIDs: Set<String>
 
     init(availableLocaleIDs: Set<String>) {
         self.availableLocaleIDs = availableLocaleIDs

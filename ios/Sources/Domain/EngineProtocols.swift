@@ -52,9 +52,16 @@ protocol ContinuousBidirectionalTranslating: AnyObject {
 @MainActor
 protocol SpeechSynthesisEngine: AnyObject {
     func isVoiceAvailable(locale: Locale) -> Bool
+    func availableVoices(for languages: [AppLanguage]) async -> Set<AppLanguage>
     func speak(_ text: String, locale: Locale, rate: Float) async throws
     func play(data: Data, format: String?) async throws
     func cancel()
+}
+
+extension SpeechSynthesisEngine {
+    func availableVoices(for languages: [AppLanguage]) async -> Set<AppLanguage> {
+        Set(languages.filter { isVoiceAvailable(locale: $0.locale) })
+    }
 }
 
 @MainActor

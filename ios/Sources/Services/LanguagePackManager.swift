@@ -7,6 +7,7 @@ final class LanguagePackManager: ObservableObject {
     @Published private(set) var readiness = TripReadiness()
     @Published private(set) var languageStates: [AppLanguage: LanguageAssetState]
     @Published private(set) var speechInventory = SpeechAssetInventorySnapshot.empty
+    @Published private(set) var catalogRevision = 0
     @Published private(set) var isWorking = false
     @Published private(set) var activeOperation: LanguagePackOperationTarget?
     @Published private(set) var progressMessage: String?
@@ -16,7 +17,8 @@ final class LanguagePackManager: ObservableObject {
     @Published var translationDownloadConfiguration: TranslationSession.Configuration?
 
     private let speech: any SpeechAssetManaging
-    private let translation: any TranslationEngine
+    private let translationForStrategy: (OnDeviceTranslationStrategy) -> any TranslationEngine
+    private let preferredStrategy: () -> OnDeviceTranslationStrategy
     private let synthesis: any SpeechSynthesisEngine
     private let defaults: UserDefaults
     private let now: () -> Date
@@ -28,7 +30,8 @@ final class LanguagePackManager: ObservableObject {
     private var checking: (pair: LanguagePair, generation: Int, task: Task<Void, Never>)?
     private var installationDidSucceed: ((TripReadiness) -> Void)?
     private var generation = 0
-    private var catalogGeneration = 0
+    private var catalogLoad: Task<Void, Never>?
+    private var listenDownload: Task<Void, Never>?
     private var lastUsed: [AppLanguage: Date]
 
     private static let usageKey = "LocalLingo.LanguagePackUsage.v1"
@@ -46,13 +49,15 @@ final class LanguagePackManager: ObservableObject {
 
     init(
         speech: any SpeechAssetManaging,
-        translation: any TranslationEngine,
+        translationForStrategy: @escaping (OnDeviceTranslationStrategy) -> any TranslationEngine,
+        preferredStrategy: @escaping () -> OnDeviceTranslationStrategy,
         synthesis: any SpeechSynthesisEngine,
         defaults: UserDefaults = .standard,
         now: @escaping () -> Date = Date.init
     ) {
         self.speech = speech
-        self.translation = translation
+        self.translationForStrategy = translationForStrategy
+        self.preferredStrategy = preferredStrategy
         self.synthesis = synthesis
         self.defaults = defaults
         self.now = now
@@ -64,9 +69,6 @@ final class LanguagePackManager: ObservableObject {
                     language,
                     LanguageAssetState(
                         language: language,
-                        speakReadiness: synthesis.isVoiceAvailable(locale: language.locale)
-                            ? .ready
-                            : .downloadRequired,
                         lastUsedAt: usage[language]
                     )
                 )
@@ -77,20 +79,32 @@ final class LanguagePackManager: ObservableObject {
     func state(for language: AppLanguage) -> LanguageAssetState {
         languageStates[language] ?? LanguageAssetState(
             language: language,
-            speakReadiness: voiceReadiness(for: language),
             lastUsedAt: lastUsed[language]
         )
     }
 
+    func checkIfNeeded(_ pair: LanguagePair) async {
+        guard readiness.pair != pair || readiness.translationStrategy != preferredStrategy()
+                || readiness.translateForward == .unknown || readiness.translateReverse == .unknown else { return }
+        await check(pair)
+    }
+
     func check(_ pair: LanguagePair) async {
+        if let listenDownload, selectedPair != pair {
+            // A detail download can continue after the user returns to Talk.
+            selectedPair = pair
+            await listenDownload.value
+            guard selectedPair == pair else { return }
+        }
         guard !isWorking else { return }
-        if let checking, checking.pair == pair, checking.generation == generation {
+        let strategy = preferredStrategy()
+        if let checking, checking.pair == pair, checking.generation == generation,
+           operationReadiness.translationStrategy == strategy {
             await checking.task.value
             return
         }
         selectedPair = pair
         generation += 1
-        catalogGeneration += 1
         let current = generation
         clearPendingOperation()
         isWorking = false
@@ -99,7 +113,7 @@ final class LanguagePackManager: ObservableObject {
         noticeMessage = nil
         guard LocalConversationLanguagePolicy.supports(pair) else {
             let message = LocalConversationLanguagePolicy.unsupportedMessage(for: pair)
-            operationReadiness = TripReadiness(pair: pair, generation: current)
+            operationReadiness = TripReadiness(pair: pair, translationStrategy: strategy, generation: current)
             readiness = operationReadiness
             errorMessage = message
             setPairError(message, pair: pair)
@@ -107,17 +121,20 @@ final class LanguagePackManager: ObservableObject {
         }
         markUsed(pair.traveler)
         markUsed(pair.local)
-        if readiness.pair == pair {
+        if readiness.pair == pair && readiness.translationStrategy == strategy {
             // Keep the selected pair usable until the new probe finishes.
             operationReadiness = readiness
             operationReadiness.generation = current
         } else {
-            operationReadiness = checkingReadiness(pair: pair, generation: current)
+            operationReadiness = checkingReadiness(pair: pair, generation: current, strategy: strategy)
             publishOperationReadiness()
         }
         setPairError(nil, pair: pair)
 
+        let previousCatalogLoad = catalogLoad
         let probe = Task {
+            await previousCatalogLoad?.value
+            guard isCurrent(pair, current) else { return }
             let inventory = await speech.inventorySnapshot()
             guard isCurrent(pair, current) else { return }
             updateInventory(inventory)
@@ -128,34 +145,51 @@ final class LanguagePackManager: ObservableObject {
         if checking?.generation == current { checking = nil }
     }
 
-    func refreshAll() async {
-        guard !isWorking else { return }
-        catalogGeneration += 1
-        let current = catalogGeneration
-
-        let inventory = await speech.inventorySnapshot()
-        guard catalogGeneration == current, !isWorking else { return }
-        updateInventory(inventory)
-
-        for language in AppLanguage.conversationLanguages {
-            guard catalogGeneration == current, !isWorking else { return }
-            let raw = await speech.assetReadiness(locale: language.locale)
-            guard catalogGeneration == current, !isWorking else { return }
-            publishLanguageReadiness(raw, for: language, inventory: inventory)
-        }
+    func invalidateCatalog() {
+        catalogLoad?.cancel()
+        catalogLoad = nil
+        catalogRevision += 1
     }
 
-    func refresh(_ language: AppLanguage) async {
+    func loadCatalogIfNeeded() async {
         guard !isWorking else { return }
-        catalogGeneration += 1
-        let current = catalogGeneration
+        if let catalogLoad {
+            await catalogLoad.value
+            return
+        }
 
+        // The list and its details share this read, including while the first
+        // screen disappears. An asset change explicitly cancels the old read.
+        let previousPairCheck = checking?.task
+        let load = Task {
+            await previousPairCheck?.value
+            guard !Task.isCancelled else { return }
+            await readCatalog()
+        }
+        catalogLoad = load
+        await load.value
+    }
+
+    private func readCatalog() async {
+        let languages = AppLanguage.conversationLanguages
         let inventory = await speech.inventorySnapshot()
-        guard catalogGeneration == current, !isWorking else { return }
-        updateInventory(inventory)
-        let raw = await speech.assetReadiness(locale: language.locale)
-        guard catalogGeneration == current, !isWorking else { return }
-        publishLanguageReadiness(raw, for: language, inventory: inventory)
+        guard !Task.isCancelled else { return }
+        let voices = await synthesis.availableVoices(for: languages)
+        var updates = [AppLanguage: ComponentReadiness]()
+        for language in languages {
+            guard !Task.isCancelled else { return }
+            let raw = await speech.assetReadiness(locale: language.locale)
+            updates[language] = effectiveReadiness(raw, language: language, inventory: inventory)
+        }
+        guard !Task.isCancelled else { return }
+        var states = languageStates
+        for (language, readiness) in updates {
+            states[language]?.listenReadiness = readiness
+            states[language]?.listenReserved = inventory.contains(language)
+            states[language]?.speakReadiness = voices.contains(language) ? .ready : .downloadRequired
+        }
+        if speechInventory != inventory { speechInventory = inventory }
+        if languageStates != states { languageStates = states }
     }
 
     func install(_ pair: LanguagePair, onReady: ((TripReadiness) -> Void)? = nil) async {
@@ -172,7 +206,7 @@ final class LanguagePackManager: ObservableObject {
         }
 
         generation += 1
-        catalogGeneration += 1
+        catalogLoad?.cancel()
         let current = generation
         clearPendingOperation()
         errorMessage = nil
@@ -181,13 +215,16 @@ final class LanguagePackManager: ObservableObject {
         installationDidSucceed = onReady
         activeOperation = .pair(pair)
 
-        operationReadiness = readiness.pair == pair
+        let strategy = preferredStrategy()
+        operationReadiness = readiness.pair == pair && readiness.translationStrategy == strategy
             ? readiness
-            : TripReadiness(pair: pair)
+            : TripReadiness(pair: pair, translationStrategy: strategy)
         operationReadiness.pair = pair
         operationReadiness.generation = current
-        operationReadiness.speakTraveler = voiceReadiness(for: pair.traveler)
-        operationReadiness.speakLocal = voiceReadiness(for: pair.local)
+        let voices = await synthesis.availableVoices(for: [pair.traveler, pair.local])
+        guard isCurrent(pair, current) else { return }
+        operationReadiness.speakTraveler = voices.contains(pair.traveler) ? .ready : .downloadRequired
+        operationReadiness.speakLocal = voices.contains(pair.local) ? .ready : .downloadRequired
         setPairError(nil, pair: pair)
         publishOperationReadiness()
 
@@ -196,20 +233,11 @@ final class LanguagePackManager: ObservableObject {
         updateInventory(inventory)
 
         do {
-            try await prepareListeningAsset(
-                language: pair.traveler,
-                keyPath: \.listenTraveler,
-                pair: pair,
-                generation: current
-            )
-            try await prepareListeningAsset(
-                language: pair.local,
-                keyPath: \.listenLocal,
-                pair: pair,
-                generation: current
-            )
+            try await prepareListeningAsset(pair.traveler, generation: current)
+            try await prepareListeningAsset(pair.local, generation: current)
             try await prepareContinuousListeningAssets(pair, generation: current)
 
+            let translation = translationForStrategy(strategy)
             let forward = await translation.availability(
                 source: pair.traveler.language,
                 target: pair.local.language
@@ -259,6 +287,47 @@ final class LanguagePackManager: ObservableObject {
         }
     }
 
+    func downloadListen(for language: AppLanguage, protecting pair: LanguagePair) {
+        guard !isWorking else { return }
+        selectedPair = pair
+        let interruptedPairCheck = checking != nil
+        generation += 1
+        let current = generation
+        catalogLoad?.cancel()
+        errorMessage = nil
+        noticeMessage = nil
+        setLanguageError(nil, language: language)
+        isWorking = true
+        activeOperation = .language(language)
+        progressMessage = "Checking the listening model"
+        listenDownload = Task {
+            do {
+                try await prepareListeningAsset(language, generation: current)
+                try requireActiveOperation(current)
+                markUsed(language)
+            } catch {
+                guard generation == current else { return }
+                if !(error is CancellationError) {
+                    errorMessage = error.localizedDescription
+                    setLanguageError(error.localizedDescription, language: language)
+                }
+                resetListenProgress(for: language)
+            }
+            if interruptedPairCheck || pair.traveler == language || pair.local == language {
+                operationReadiness = TripReadiness(
+                    pair: pair, translationStrategy: preferredStrategy(), generation: current
+                )
+                await refreshOperationReadiness(pair, generation: current)
+                guard generation == current else { return }
+            }
+            completeOperation()
+        }
+    }
+
+    func isDownloadingListen(for language: AppLanguage) -> Bool {
+        listenDownload != nil && activeOperation == .language(language)
+    }
+
     func releaseListen(for language: AppLanguage) async {
         guard !isWorking else {
             errorMessage = "Wait for the current language-pack operation to finish."
@@ -271,7 +340,7 @@ final class LanguagePackManager: ObservableObject {
         }
 
         generation += 1
-        catalogGeneration += 1
+        catalogLoad?.cancel()
         let current = generation
         clearPendingOperation()
         errorMessage = nil
@@ -328,6 +397,10 @@ final class LanguagePackManager: ObservableObject {
     func cancelInstallation() {
         guard isWorking else { return }
         generation += 1
+        if let listenDownload, case let .language(language) = activeOperation {
+            listenDownload.cancel()
+            resetListenProgress(for: language)
+        }
         activeTranslationSession?.cancel()
         activeTranslationSession = nil
         if case .some(.pair) = activeOperation {
@@ -416,24 +489,21 @@ final class LanguagePackManager: ObservableObject {
     }
 
     private func prepareListeningAsset(
-        language: AppLanguage,
-        keyPath: WritableKeyPath<TripReadiness, ComponentReadiness>,
-        pair: LanguagePair,
+        _ language: AppLanguage,
         generation current: Int
     ) async throws {
-        var inventory = await speech.inventorySnapshot()
-        try requireCurrent(pair, current)
+        let inventory = await speech.inventorySnapshot()
+        try requireActiveOperation(current)
         updateInventory(inventory)
 
         let initialRaw = await speech.assetReadiness(locale: language.locale)
-        try requireCurrent(pair, current)
+        try requireActiveOperation(current)
         let initial = effectiveReadiness(
             initialRaw,
             language: language,
             inventory: inventory
         )
-        operationReadiness[keyPath: keyPath] = initial
-        publishOperationReadiness()
+        publishListenReadiness(initial, for: language)
 
         guard initial != .unavailable else {
             throw PipelineError.assetsUnavailable(
@@ -442,52 +512,45 @@ final class LanguagePackManager: ObservableObject {
         }
         if initialRaw == .ready, inventory.contains(language) { return }
 
-        try await ensureReservationCapacity(
-            for: language,
-            pair: pair,
-            generation: current
-        )
-        inventory = speechInventory
+        try await ensureReservationCapacity(for: language, generation: current)
 
         if initialRaw == .ready {
             progressMessage = "Reserving Listen recognition: \(language.displayName)"
             installationProgress = nil
             try await speech.reserveAssets(locale: language.locale)
         } else {
-            operationReadiness[keyPath: keyPath] = .downloading
-            publishOperationReadiness()
+            publishListenReadiness(.downloading, for: language)
             progressMessage = "Preparing Listen recognition: \(language.displayName). iOS may pause and resume this model download."
             installationProgress = nil
             try await speech.installAssets(locale: language.locale) { [weak self] fraction in
                 guard let self,
                       self.isWorking,
-                      self.isCurrent(pair, current) else {
+                      self.generation == current else {
                     return
                 }
                 self.installationProgress = fraction
             }
         }
-        try requireCurrent(pair, current)
+        try requireActiveOperation(current)
 
         var verifiedInventory = await speech.inventorySnapshot()
-        try requireCurrent(pair, current)
+        try requireActiveOperation(current)
         if !verifiedInventory.contains(language) {
             try await speech.reserveAssets(locale: language.locale)
-            try requireCurrent(pair, current)
+            try requireActiveOperation(current)
             verifiedInventory = await speech.inventorySnapshot()
-            try requireCurrent(pair, current)
+            try requireActiveOperation(current)
         }
         updateInventory(verifiedInventory)
 
         let verifiedRaw = await speech.assetReadiness(locale: language.locale)
-        try requireCurrent(pair, current)
+        try requireActiveOperation(current)
         let verified = effectiveReadiness(
             verifiedRaw,
             language: language,
             inventory: verifiedInventory
         )
-        operationReadiness[keyPath: keyPath] = verified
-        publishOperationReadiness()
+        publishListenReadiness(verified, for: language)
         guard verified == .ready else {
             throw PipelineError.assetsUnavailable(
                 "iOS has not finished installing and reserving the Listen model for \(language.displayName)."
@@ -497,11 +560,10 @@ final class LanguagePackManager: ObservableObject {
 
     private func ensureReservationCapacity(
         for language: AppLanguage,
-        pair: LanguagePair,
         generation current: Int
     ) async throws {
         var inventory = await speech.inventorySnapshot()
-        try requireCurrent(pair, current)
+        try requireActiveOperation(current)
         updateInventory(inventory)
         guard !inventory.contains(language) else { return }
         guard inventory.maximumReservedLocales > 0 else {
@@ -511,21 +573,13 @@ final class LanguagePackManager: ObservableObject {
         }
 
         while inventory.reservedCount >= inventory.maximumReservedLocales {
-            var protectedLanguages = Set([pair.traveler, pair.local])
-            if let selectedPair {
-                protectedLanguages.insert(selectedPair.traveler)
-                protectedLanguages.insert(selectedPair.local)
-            }
-            if case let .some(.pair(activePair)) = activeOperation {
-                protectedLanguages.insert(activePair.traveler)
-                protectedLanguages.insert(activePair.local)
-            } else if case let .some(.language(activeLanguage)) = activeOperation {
-                protectedLanguages.insert(activeLanguage)
-            }
             // Hidden beta languages can remain reserved after installing a
             // build whose visible catalog no longer includes them.
             let candidates = AppLanguage.allCases
-                .filter { inventory.contains($0) && !protectedLanguages.contains($0) }
+                .filter {
+                    inventory.contains($0) && activeOperation?.contains($0) != true
+                        && $0 != selectedPair?.traveler && $0 != selectedPair?.local
+                }
                 .sorted {
                     let lhs = lastUsed[$0] ?? .distantPast
                     let rhs = lastUsed[$1] ?? .distantPast
@@ -546,9 +600,9 @@ final class LanguagePackManager: ObservableObject {
                     "iOS could not release the \(candidate.displayName) Listen reservation."
                 )
             }
-            try requireCurrent(pair, current)
+            try requireActiveOperation(current)
             let refreshed = await speech.inventorySnapshot()
-            try requireCurrent(pair, current)
+            try requireActiveOperation(current)
             guard refreshed.reservedCount < inventory.reservedCount,
                   !refreshed.contains(candidate) else {
                 throw PipelineError.assetsUnavailable(
@@ -705,6 +759,9 @@ final class LanguagePackManager: ObservableObject {
             generation: current
         )
         guard isCurrent(pair, current) else { return }
+#if DEBUG
+        print("Talk readiness [\(probed.translationStrategy.rawValue)]: listen=\(probed.listenTraveler)/\(probed.listenLocal)/\(probed.listenPair) translate=\(probed.translateForward)/\(probed.translateReverse)")
+#endif
         operationReadiness = probed
         operationReadiness.generation = current
         publishOperationReadiness()
@@ -715,7 +772,9 @@ final class LanguagePackManager: ObservableObject {
         inventory: SpeechAssetInventorySnapshot,
         generation current: Int
     ) async -> TripReadiness {
-        var result = checkingReadiness(pair: pair, generation: current)
+        let strategy = operationReadiness.translationStrategy
+        let translation = translationForStrategy(strategy)
+        var result = checkingReadiness(pair: pair, generation: current, strategy: strategy)
         let travelerSpeech = await speech.assetReadiness(locale: pair.traveler.locale)
         result.listenTraveler = effectiveReadiness(
             travelerSpeech,
@@ -743,17 +802,20 @@ final class LanguagePackManager: ObservableObject {
             source: pair.local.language,
             target: pair.traveler.language
         )
-        result.speakTraveler = voiceReadiness(for: pair.traveler)
-        result.speakLocal = voiceReadiness(for: pair.local)
+        let voices = await synthesis.availableVoices(for: [pair.traveler, pair.local])
+        result.speakTraveler = voices.contains(pair.traveler) ? .ready : .downloadRequired
+        result.speakLocal = voices.contains(pair.local) ? .ready : .downloadRequired
         return result
     }
 
     private func checkingReadiness(
         pair: LanguagePair,
-        generation: Int
+        generation: Int,
+        strategy: OnDeviceTranslationStrategy
     ) -> TripReadiness {
         TripReadiness(
             pair: pair,
+            translationStrategy: strategy,
             generation: generation,
             listenTraveler: .checking,
             listenLocal: .checking,
@@ -831,21 +893,43 @@ final class LanguagePackManager: ObservableObject {
         return readiness
     }
 
-    private func voiceReadiness(for language: AppLanguage) -> ComponentReadiness {
-        synthesis.isVoiceAvailable(locale: language.locale) ? .ready : .downloadRequired
+    private func requireActiveOperation(_ current: Int) throws {
+        try Task.checkCancellation()
+        guard generation == current, isWorking else { throw CancellationError() }
+    }
+
+    private func publishListenReadiness(_ value: ComponentReadiness, for language: AppLanguage) {
+        if case let .pair(pair) = activeOperation {
+            if pair.traveler == language { operationReadiness.listenTraveler = value }
+            else { operationReadiness.listenLocal = value }
+            publishOperationReadiness()
+        } else {
+            var state = state(for: language)
+            state.listenReadiness = value
+            state.listenReserved = speechInventory.contains(language)
+            languageStates[language] = state
+        }
+    }
+
+    private func resetListenProgress(for language: AppLanguage) {
+        if state(for: language).listenReadiness == .downloading {
+            languageStates[language]?.listenReadiness = .downloadRequired
+        }
     }
 
     private func updateInventory(_ inventory: SpeechAssetInventorySnapshot) {
+        guard speechInventory != inventory else { return }
         speechInventory = inventory
+        var states = languageStates
         for language in AppLanguage.conversationLanguages {
             var state = state(for: language)
             state.listenReserved = inventory.contains(language)
             if state.listenReadiness == .ready, !state.listenReserved {
                 state.listenReadiness = .downloadRequired
             }
-            state.speakReadiness = voiceReadiness(for: language)
-            languageStates[language] = state
+            states[language] = state
         }
+        if languageStates != states { languageStates = states }
     }
 
     private func publishOperationReadiness() {
@@ -867,24 +951,6 @@ final class LanguagePackManager: ObservableObject {
         if selectedPair == pair {
             readiness = operationReadiness
         }
-    }
-
-    private func publishLanguageReadiness(
-        _ value: ComponentReadiness,
-        for language: AppLanguage,
-        inventory: SpeechAssetInventorySnapshot
-    ) {
-        var state = state(for: language)
-        state.listenReadiness = effectiveReadiness(
-            value,
-            language: language,
-            inventory: inventory
-        )
-        state.listenReserved = inventory.contains(language)
-        state.speakReadiness = voiceReadiness(for: language)
-        state.lastUsedAt = lastUsed[language]
-        state.errorMessage = nil
-        languageStates[language] = state
     }
 
     private func setLanguageError(_ message: String?, language: AppLanguage) {
@@ -919,10 +985,12 @@ final class LanguagePackManager: ObservableObject {
 
     private func completeOperation(installed: Bool = false) {
         let completion = installationDidSucceed
+        listenDownload = nil
         installationDidSucceed = nil
         isWorking = false
         activeOperation = nil
         clearPendingOperation()
+        invalidateCatalog()
         if installed { completion?(operationReadiness) }
     }
 
@@ -968,7 +1036,7 @@ final class LanguagePackManager: ObservableObject {
             TranslationSession.Configuration(
                 source: source,
                 target: target,
-                preferredStrategy: .lowLatency
+                preferredStrategy: operationReadiness.translationStrategy.appleStrategy
             )
         } else {
             TranslationSession.Configuration(source: source, target: target)

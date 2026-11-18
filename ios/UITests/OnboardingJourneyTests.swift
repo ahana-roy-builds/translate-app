@@ -18,12 +18,93 @@ final class OnboardingJourneyTests: XCTestCase {
         attach(app, named: "Speak Duet Talk")
         app.tabBars.buttons["Settings"].tap()
         XCTAssertTrue(app.staticTexts["Default language"].waitForExistence(timeout: 5))
+        let appearance = app.segmentedControls["settings.appearance"]
+        XCTAssertTrue(appearance.buttons["Automatic"].isSelected)
+        appearance.buttons["Dark"].tap()
+        XCTAssertTrue(appearance.buttons["Dark"].isSelected)
+        attach(app, named: "Relay dark settings")
+        app.tabBars.buttons["Talk"].tap()
+        tap("talk.partner-language", in: app)
+        XCTAssertTrue(app.buttons["Done"].waitForExistence(timeout: 5))
+        attach(app, named: "Relay dark language picker")
+        app.buttons["Done"].tap()
+        app.tabBars.buttons["Settings"].tap()
+        XCTAssertTrue(appearance.buttons["Dark"].isSelected)
+        appearance.buttons["Light"].tap()
+        XCTAssertTrue(appearance.buttons["Light"].isSelected)
+        appearance.buttons["Automatic"].tap()
         attach(app, named: "Default language in Settings")
         let account = app.buttons["Account"].firstMatch
         scrollTo(account, in: app)
         account.tap()
         XCTAssertTrue(app.staticTexts["Account sign-in isn’t available in this build yet. You can continue without an account."].waitForExistence(timeout: 5))
         attach(app, named: "Guest account")
+    }
+
+    func testSplitLayoutCanSwitchAndExpiredAccessStillShowsPaywall() {
+        let app = XCUIApplication()
+        app.launchArguments = ["SpeakDuet.UITests", "SpeakDuet.UITests.expired"]
+        app.launch()
+        for id in ["onboarding.continue", "onboarding.language.en-US", "onboarding.continue",
+                   "onboarding.language.es-ES", "onboarding.continue", "onboarding.continue"] {
+            tap(id, in: app)
+        }
+        let partner = app.buttons["talk.partner-language"]
+        let owner = app.buttons["talk.traveler-language"]
+        XCTAssertTrue(owner.waitForExistence(timeout: 10))
+        XCTAssertLessThan(partner.frame.midY, owner.frame.midY)
+        XCTAssertFalse(app.buttons["Subscription"].exists)
+        attach(app, named: "Wave ribbon ready")
+        tap("talk.switch-layout", in: app)
+        XCTAssertEqual(partner.frame.midY, owner.frame.midY, accuracy: 4)
+        tap("talk.switch-layout", in: app)
+        XCTAssertLessThan(partner.frame.midY, owner.frame.midY)
+        tap("talk.primary-microphone", in: app)
+        XCTAssertTrue(app.staticTexts["Keep the conversation going"].waitForExistence(timeout: 5))
+    }
+
+    func testMissingLanguagesKeepTalkVisibleUntilSetupIsRequested() {
+        let app = XCUIApplication()
+        app.launchArguments = ["SpeakDuet.UITests", "SpeakDuet.UITests.needsDownload"]
+        app.launch()
+        for id in ["onboarding.continue", "onboarding.language.en-US", "onboarding.continue",
+                   "onboarding.language.es-ES", "onboarding.continue", "onboarding.continue"] {
+            tap(id, in: app)
+        }
+        tap("talk.partner-language", in: app)
+        tap("talk.local-language.fr-FR", in: app)
+        let setup = app.buttons["talk.language-setup"].firstMatch
+        XCTAssertTrue(setup.waitForExistence(timeout: 10))
+        let owner = app.buttons["talk.traveler-language"], partner = app.buttons["talk.partner-language"]
+        XCTAssertLessThan(partner.frame.midY, owner.frame.midY)
+        XCTAssertFalse(app.buttons["Download and Verify"].exists)
+        tap("talk.switch-layout", in: app)
+        XCTAssertEqual(partner.frame.midY, owner.frame.midY, accuracy: 4)
+        XCTAssertFalse(app.buttons["Download and Verify"].exists)
+        XCTAssertFalse(app.navigationBars["Language Packs"].exists)
+        setup.tap()
+        XCTAssertTrue(app.navigationBars["Language Packs"].waitForExistence(timeout: 5))
+    }
+
+    func testTranslationOnlyWarningIsRecheckedWhenTheMicIsTapped() {
+        let app = XCUIApplication()
+        app.launchArguments = ["SpeakDuet.UITests", "SpeakDuet.UITests.missingFrenchTranslation"]
+        app.launch()
+        for id in ["onboarding.continue", "onboarding.language.en-US", "onboarding.continue",
+                   "onboarding.language.es-ES", "onboarding.continue", "onboarding.continue"] {
+            tap(id, in: app)
+        }
+        tap("talk.partner-language", in: app)
+        tap("talk.local-language.fr-FR", in: app)
+        let mic = app.buttons["talk.primary-microphone"], setup = app.buttons["talk.language-setup"]
+        XCTAssertTrue(mic.waitForExistence(timeout: 5))
+        let enabled = NSPredicate(format: "enabled == true")
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: enabled, object: mic)], timeout: 5), .completed)
+        XCTAssertFalse(setup.exists)
+        mic.tap()
+        XCTAssertTrue(setup.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.navigationBars["Language Packs"].exists)
+        XCTAssertFalse(app.buttons["Download and Verify"].exists)
     }
 
     func testManualOnlyPairOpensManualConversation() {
@@ -37,6 +118,51 @@ final class OnboardingJourneyTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["This iPhone supports manual turns for this pair. Tap a speaker’s mic to record, then tap again to translate."].waitForExistence(timeout: 5))
         tap("onboarding.continue", in: app)
         XCTAssertTrue(app.navigationBars["Manual conversation"].waitForExistence(timeout: 10))
+    }
+
+    func testReopenLanguagePacksAndSpanishDetailsFromSettings() {
+        let app = XCUIApplication()
+        app.launchArguments = ["SpeakDuet.UITests"]
+        app.launch()
+        for id in ["onboarding.continue", "onboarding.language.en-US", "onboarding.continue",
+                   "onboarding.language.es-ES", "onboarding.continue", "onboarding.continue"] {
+            tap(id, in: app)
+        }
+        app.tabBars.buttons["Settings"].tap()
+        for _ in 0..<2 {
+            tap("settings.languagePacks", in: app)
+            let spanish = app.buttons["languagePacks.es-ES"].firstMatch
+            scrollTo(spanish, in: app)
+            spanish.tap()
+            let detail = app.navigationBars["Spanish"]
+            XCTAssertTrue(detail.waitForExistence(timeout: 5))
+            detail.buttons.element(boundBy: 0).tap()
+            let list = app.navigationBars["Language Packs"]
+            XCTAssertTrue(list.waitForExistence(timeout: 5))
+            list.buttons.element(boundBy: 0).tap()
+            XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
+        }
+    }
+
+    func testDownloadAndReleaseHindiFromDetails() {
+        let app = XCUIApplication()
+        app.launchArguments = ["SpeakDuet.UITests", "SpeakDuet.UITests.needsDownload"]
+        app.launch()
+        for id in ["onboarding.continue", "onboarding.language.en-US", "onboarding.continue",
+                   "onboarding.language.es-ES", "onboarding.continue", "onboarding.continue"] {
+            tap(id, in: app)
+        }
+        app.tabBars.buttons["Settings"].tap()
+        tap("settings.languagePacks", in: app)
+        let hindi = app.buttons["languagePacks.hi-IN"].firstMatch
+        scrollTo(hindi, in: app)
+        hindi.tap()
+        tap("languagePacks.downloadListen", in: app)
+        let release = app.buttons["Release Listen reservation"]
+        XCTAssertTrue(release.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["languagePacks.downloadListen"].exists)
+        release.tap()
+        XCTAssertTrue(app.buttons["languagePacks.downloadListen"].waitForExistence(timeout: 5))
     }
 
     func testWelcomeAtLargestAccessibilityTextSize() {

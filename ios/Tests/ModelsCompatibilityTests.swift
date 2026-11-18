@@ -97,6 +97,20 @@ final class ModelsCompatibilityTests: XCTestCase {
         )
     }
 
+    func testAppearanceDefaultsAndRoundTripsWithExistingPreferences() throws {
+        let decoder = JSONDecoder()
+        for json in [#"{"slowerSpeech":true}"#, #"{"slowerSpeech":true,"appearance":"Future"}"#] {
+            let saved = try decoder.decode(AppSettings.self, from: Data(json.utf8))
+            XCTAssertEqual(saved.appearance, .automatic)
+            XCTAssertTrue(saved.slowerSpeech)
+        }
+        for appearance in AppAppearance.allCases {
+            var settings = AppSettings()
+            settings.appearance = appearance
+            XCTAssertEqual(try decoder.decode(AppSettings.self, from: JSONEncoder().encode(settings)), settings)
+        }
+    }
+
     func testLegacySyncSettingIsDiscardedFromCanonicalEncoding() throws {
         let legacy = Data(#"{"historySyncEnabled":true,"autoSpeak":true,"slowerSpeech":false}"#.utf8)
         let settings = try JSONDecoder().decode(AppSettings.self, from: legacy)

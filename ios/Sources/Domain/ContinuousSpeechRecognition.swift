@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreMedia
 import Foundation
+import Speech
 
 enum LanguageReviewReason: String, CaseIterable, Equatable, Hashable, Sendable {
     case shortUtterance
@@ -44,6 +45,8 @@ protocol ContinuousSpeechRecognizing: AnyObject {
         onFailure: @escaping @MainActor (Error) -> Void
     ) async throws
     func append(_ buffer: AVAudioPCMBuffer, at audioTime: AVAudioTime?) throws
+    func beginUtterance(at start: CMTime)
+    func takeDraft(in range: CMTimeRange, onRevision: @escaping @MainActor (ContinuousDraft?) -> Void) -> ContinuousDraft?
     func finishInput() throws -> CMTime?
     func finalizeUtterance(in range: CMTimeRange) async throws -> LanguageDecision
     func cancelAnalysis(before time: CMTime)
@@ -103,6 +106,28 @@ struct ContinuousRecognitionSegment {
     let isFinal: Bool
     let confidence: Double?
     let lowConfidenceFraction: Double
+    let timedText: AttributedString?
+
+    /// A word belongs to the turn in which it ends. Preserve spaces and
+    /// punctuation between timed runs, which Apple can return without timing.
+    func clipped(to interval: CMTimeRange) -> Self? {
+        guard let timedText else { return self }
+        let start = CMTimeMaximum(range.start, interval.start)
+        let end = CMTimeMinimum(range.end, interval.end)
+        guard start < end else { return nil }
+        if start == range.start && end == range.end { return self }
+
+        let included = timedText.runs.compactMap { run -> Range<AttributedString.Index>? in
+            guard let time = run[AttributeScopes.SpeechAttributes.TimeRangeAttribute.self],
+                  time.end > start, time.end <= end else { return nil }
+            return run.range
+        }
+        guard let first = included.first, let last = included.last else { return nil }
+        let words = AttributedString(timedText[first.lowerBound..<last.upperBound])
+        return Self(range: CMTimeRange(start: start, end: end), text: String(words.characters),
+                    isFinal: isFinal, confidence: confidence, lowConfidenceFraction: lowConfidenceFraction,
+                    timedText: words)
+    }
 }
 
 /// Applies volatile transcript revisions and produces a bounded snapshot for an
@@ -116,7 +141,8 @@ struct ContinuousRecognitionAccumulator {
         text: String,
         isFinal: Bool,
         confidence: Double?,
-        lowConfidenceFraction: Double
+        lowConfidenceFraction: Double,
+        timedText: AttributedString? = nil
     ) -> Bool {
         segments.removeAll { Self.overlaps($0.range, range) }
 
@@ -128,7 +154,8 @@ struct ContinuousRecognitionAccumulator {
             text: replacement,
             isFinal: isFinal,
             confidence: confidence,
-            lowConfidenceFraction: ContinuousLanguageDecisionPolicy.clamp(lowConfidenceFraction)
+            lowConfidenceFraction: ContinuousLanguageDecisionPolicy.clamp(lowConfidenceFraction),
+            timedText: timedText
         ))
         segments.sort { CMTimeCompare($0.range.start, $1.range.start) < 0 }
         return true
@@ -136,7 +163,7 @@ struct ContinuousRecognitionAccumulator {
 
     func transcript(in range: CMTimeRange? = nil) -> Transcript? {
         let included = range.map { requested in
-            segments.filter { Self.overlaps($0.range, requested) }
+            segments.filter { Self.overlaps($0.range, requested) }.compactMap { $0.clipped(to: requested) }
         } ?? segments
         guard !included.isEmpty else { return nil }
 
@@ -171,6 +198,14 @@ struct ContinuousRecognitionAccumulator {
         segments.removeAll { segment in
             let end = CMTimeGetSeconds(CMTimeRangeGetEnd(segment.range))
             return end.isFinite && end <= cutoff + Self.timeTolerance
+        }
+    }
+
+    mutating func retireLiveDraft(through boundary: CMTime) {
+        segments = segments.compactMap { segment in
+            if segment.range.start >= boundary { return segment }
+            guard segment.range.end > boundary else { return nil }
+            return segment.clipped(to: CMTimeRange(start: boundary, end: segment.range.end))
         }
     }
 

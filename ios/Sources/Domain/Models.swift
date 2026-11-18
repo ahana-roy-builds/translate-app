@@ -115,9 +115,10 @@ struct LanguagePair: Codable, Equatable, Hashable, Sendable {
     func target(for speaker: SpeakerSide) -> AppLanguage { speaker == .traveler ? local : traveler }
 }
 
-enum SpeakerSide: String, Codable, CaseIterable, Equatable, Hashable, Sendable {
+enum SpeakerSide: String, Codable, CaseIterable, Equatable, Hashable, Identifiable, Sendable {
     case traveler
     case local
+    var id: Self { self }
     var other: Self { self == .traveler ? .local : .traveler }
 }
 
@@ -430,6 +431,7 @@ enum ComponentReadiness: String, Codable, Equatable, Sendable {
 
 struct TripReadiness: Equatable, Sendable {
     var pair: LanguagePair?
+    var translationStrategy: OnDeviceTranslationStrategy = .lowLatency
     var generation: Int = 0
     var listenTraveler: ComponentReadiness = .unknown
     var listenLocal: ComponentReadiness = .unknown
@@ -450,10 +452,18 @@ struct TripReadiness: Equatable, Sendable {
     }
 }
 
+enum AppAppearance: String, Codable, CaseIterable, Sendable {
+    case automatic = "Automatic"
+    case light = "Light"
+    case dark = "Dark"
+}
+
 struct AppSettings: Codable, Equatable, Sendable {
     var pair = LanguagePair()
     var defaultLanguage: AppLanguage = .englishUS
     var routing: RoutingPreference = .localOnly
+    var appearance: AppAppearance = .automatic
+    var talkLayout: ConversationLayout = .faceToFace
     var layout: ConversationLayout = .heldPhone
     var continuousTranslationStrategy: OnDeviceTranslationStrategy = .lowLatency
     var saveHistoryOnDevice = false
@@ -470,7 +480,7 @@ struct AppSettings: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case pair, defaultLanguage, routing, layout, saveHistoryOnDevice
+        case pair, defaultLanguage, routing, layout, talkLayout, saveHistoryOnDevice, appearance
         case continuousTranslationStrategy
         case onlineProcessingConsentGranted, acceptedOnlineDisclosureVersion, autoSpeak, slowerSpeech
     }
@@ -482,6 +492,8 @@ struct AppSettings: Codable, Equatable, Sendable {
         pair = try values.decodeIfPresent(LanguagePair.self, forKey: .pair) ?? LanguagePair()
         defaultLanguage = try values.decodeIfPresent(AppLanguage.self, forKey: .defaultLanguage) ?? pair.traveler
         routing = try values.decodeIfPresent(RoutingPreference.self, forKey: .routing) ?? .localOnly
+        appearance = try values.decodeIfPresent(String.self, forKey: .appearance).flatMap(AppAppearance.init(rawValue:)) ?? .automatic
+        talkLayout = try values.decodeIfPresent(ConversationLayout.self, forKey: .talkLayout) ?? .faceToFace
         layout = try values.decodeIfPresent(ConversationLayout.self, forKey: .layout) ?? .heldPhone
         continuousTranslationStrategy = try values.decodeIfPresent(
             OnDeviceTranslationStrategy.self,
@@ -505,6 +517,8 @@ struct AppSettings: Codable, Equatable, Sendable {
         try values.encode(pair, forKey: .pair)
         try values.encode(defaultLanguage, forKey: .defaultLanguage)
         try values.encode(routing, forKey: .routing)
+        try values.encode(appearance, forKey: .appearance)
+        try values.encode(talkLayout, forKey: .talkLayout)
         try values.encode(layout, forKey: .layout)
         try values.encode(continuousTranslationStrategy, forKey: .continuousTranslationStrategy)
         try values.encode(saveHistoryOnDevice, forKey: .saveHistoryOnDevice)
