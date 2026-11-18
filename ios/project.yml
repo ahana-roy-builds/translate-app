@@ -9,6 +9,14 @@ configs:
   PrivateBeta: release
   TestFlight: release
   Release: release
+  Commerce: release
+packages:
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk.git
+    exactVersion: 12.19.3
+  GoogleSignIn:
+    url: https://github.com/google/GoogleSignIn-iOS.git
+    exactVersion: 9.2.0
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -23,6 +31,11 @@ targets:
   LocalLingo:
     type: application
     platform: iOS
+    dependencies:
+      - package: Firebase
+        product: FirebaseAuth
+      - package: GoogleSignIn
+        product: GoogleSignIn
     sources:
       - path: Sources
       - path: Resources
@@ -33,6 +46,7 @@ targets:
       PrivateBeta: Config/PrivateBeta.xcconfig
       TestFlight: Config/TestFlight.xcconfig
       Release: Config/Release.xcconfig
+      Commerce: Config/Commerce.xcconfig
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(APP_BUNDLE_IDENTIFIER)
@@ -40,34 +54,40 @@ targets:
         PRODUCT_NAME: LocalLingo
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SUPPORTED_PLATFORMS: "iphoneos iphonesimulator"
+        OTHER_LDFLAGS: "$(inherited) -ObjC"
       configs:
         Debug:
           CODE_SIGN_ENTITLEMENTS: Config/LocalLingo.Debug.entitlements
-          EXCLUDED_SOURCE_FILE_NAMES: "$(inherited) $(SRCROOT)/Resources/Online/PrivacyInfo.xcprivacy"
+          EXCLUDED_SOURCE_FILE_NAMES: "$(inherited) $(SRCROOT)/Resources/Online/PrivacyInfo.xcprivacy $(SRCROOT)/Resources/Commerce/PrivacyInfo.xcprivacy"
         Staging:
           CODE_SIGN_ENTITLEMENTS: Config/LocalLingo.Staging.entitlements
-          EXCLUDED_SOURCE_FILE_NAMES: "$(inherited) $(SRCROOT)/Resources/PrivateBeta/PrivacyInfo.xcprivacy"
+          EXCLUDED_SOURCE_FILE_NAMES: "$(inherited) $(SRCROOT)/Resources/PrivateBeta/PrivacyInfo.xcprivacy $(SRCROOT)/Resources/Commerce/PrivacyInfo.xcprivacy"
         PrivateBeta:
           CODE_SIGN_ENTITLEMENTS: Config/LocalLingo.PrivateBeta.entitlements
-          EXCLUDED_SOURCE_FILE_NAMES: "$(inherited) $(SRCROOT)/Resources/Online/PrivacyInfo.xcprivacy"
+          EXCLUDED_SOURCE_FILE_NAMES: "$(inherited) $(SRCROOT)/Resources/Online/PrivacyInfo.xcprivacy $(SRCROOT)/Resources/Commerce/PrivacyInfo.xcprivacy"
         TestFlight:
           CODE_SIGN_ENTITLEMENTS: Config/LocalLingo.TestFlight.entitlements
-          EXCLUDED_SOURCE_FILE_NAMES: "$(inherited) $(SRCROOT)/Resources/PrivateBeta/PrivacyInfo.xcprivacy"
+          EXCLUDED_SOURCE_FILE_NAMES: "$(inherited) $(SRCROOT)/Resources/PrivateBeta/PrivacyInfo.xcprivacy $(SRCROOT)/Resources/Commerce/PrivacyInfo.xcprivacy"
         Release:
           CODE_SIGN_ENTITLEMENTS: Config/LocalLingo.Release.entitlements
-          EXCLUDED_SOURCE_FILE_NAMES: "$(inherited) $(SRCROOT)/Resources/PrivateBeta/PrivacyInfo.xcprivacy"
+          EXCLUDED_SOURCE_FILE_NAMES: "$(inherited) $(SRCROOT)/Resources/PrivateBeta/PrivacyInfo.xcprivacy $(SRCROOT)/Resources/Commerce/PrivacyInfo.xcprivacy"
+        Commerce:
+          CODE_SIGN_ENTITLEMENTS: Config/LocalLingo.Commerce.entitlements
+          EXCLUDED_SOURCE_FILE_NAMES: "$(inherited) $(SRCROOT)/Resources/Online/PrivacyInfo.xcprivacy $(SRCROOT)/Resources/PrivateBeta/PrivacyInfo.xcprivacy"
     preBuildScripts:
       - name: Deployment configuration preflight
         basedOnDependencyAnalysis: false
         inputFiles:
+          - $(FIREBASE_PREFLIGHT_INPUT)
           - $(SRCROOT)/../scripts/validate-ios-release-config.py
           - $(SRCROOT)/Config/Info.plist
           - $(SRCROOT)/Resources/Online/PrivacyInfo.xcprivacy
           - $(SRCROOT)/Resources/PrivateBeta/PrivacyInfo.xcprivacy
+          - $(SRCROOT)/Resources/Commerce/PrivacyInfo.xcprivacy
           - $(SRCROOT)/Resources/Assets.xcassets/AppIcon.appiconset/Contents.json
           - $(SRCROOT)/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png
         script: |
-          if [ "$CONFIGURATION" = "Release" ] || [ "$CONFIGURATION" = "TestFlight" ] || [ "$CONFIGURATION" = "PrivateBeta" ] || [ "$CONFIGURATION" = "Staging" ]; then
+          if [ "$CONFIGURATION" = "Release" ] || [ "$CONFIGURATION" = "TestFlight" ] || [ "$CONFIGURATION" = "PrivateBeta" ] || [ "$CONFIGURATION" = "Staging" ] || [ "$CONFIGURATION" = "Commerce" ]; then
             python3 "$SRCROOT/../scripts/validate-ios-release-config.py" --build-environment --configuration "$CONFIGURATION"
           fi
     scheme:
@@ -79,6 +99,8 @@ targets:
     platform: iOS
     sources:
       - path: Tests
+      - path: Config/LocalLingo.storekit
+        buildPhase: resources
     dependencies:
       - target: LocalLingo
     configFiles:
@@ -87,13 +109,43 @@ targets:
       PrivateBeta: Config/PrivateBeta.xcconfig
       TestFlight: Config/TestFlight.xcconfig
       Release: Config/Release.xcconfig
+      Commerce: Config/Commerce.xcconfig
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(APP_BUNDLE_IDENTIFIER).tests
         GENERATE_INFOPLIST_FILE: YES
         TARGETED_DEVICE_FAMILY: "1"
 
+  LocalLingoUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: LocalLingo
+    configFiles:
+      Debug: Config/Debug.xcconfig
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(APP_BUNDLE_IDENTIFIER).uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TARGETED_DEVICE_FAMILY: "1"
+
 schemes:
+  Speak Duet:
+    build:
+      targets:
+        LocalLingo: all
+    run:
+      config: Debug
+      storeKitConfiguration: Config/LocalLingo.storekit
+    test:
+      config: Debug
+      targets:
+        - LocalLingoTests
+        - LocalLingoUITests
+    archive:
+      config: Commerce
   LocalLingo Private Beta:
     build:
       targets:

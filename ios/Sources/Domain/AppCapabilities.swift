@@ -13,16 +13,28 @@ struct AppCapabilities: Equatable, Sendable {
 
     let onlineFeaturesEnabled: Bool
     let faceToFaceEnabled: Bool
+    let accountsEnabled: Bool
+    let subscriptionsEnabled: Bool
+    let translationAccessRequired: Bool
 
-    init(onlineFeaturesEnabled: Bool, faceToFaceEnabled: Bool) {
+    init(onlineFeaturesEnabled: Bool, faceToFaceEnabled: Bool,
+         accountsEnabled: Bool = false, subscriptionsEnabled: Bool? = nil,
+         translationAccessRequired: Bool = false) {
         self.onlineFeaturesEnabled = onlineFeaturesEnabled
         self.faceToFaceEnabled = faceToFaceEnabled
+        self.accountsEnabled = accountsEnabled
+        self.subscriptionsEnabled = subscriptionsEnabled ?? onlineFeaturesEnabled
+        self.translationAccessRequired = translationAccessRequired
     }
 
     init(bundle: Bundle = .main) {
         self.init(
             onlineFeaturesEnabled: Self.flag(named: "ONLINE_FEATURES_ENABLED", in: bundle),
-            faceToFaceEnabled: Self.flag(named: "FACE_TO_FACE_ENABLED", in: bundle)
+            faceToFaceEnabled: Self.flag(named: "FACE_TO_FACE_ENABLED", in: bundle),
+            accountsEnabled: Self.flag(named: "ACCOUNTS_ENABLED", in: bundle),
+            subscriptionsEnabled: Self.flag(named: "SUBSCRIPTIONS_ENABLED", in: bundle)
+                || Self.flag(named: "ONLINE_FEATURES_ENABLED", in: bundle),
+            translationAccessRequired: Self.flag(named: "TRANSLATION_ACCESS_REQUIRED", in: bundle)
         )
     }
 

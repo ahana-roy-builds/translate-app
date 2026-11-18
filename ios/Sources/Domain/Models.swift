@@ -452,6 +452,7 @@ struct TripReadiness: Equatable, Sendable {
 
 struct AppSettings: Codable, Equatable, Sendable {
     var pair = LanguagePair()
+    var defaultLanguage: AppLanguage = .englishUS
     var routing: RoutingPreference = .localOnly
     var layout: ConversationLayout = .heldPhone
     var continuousTranslationStrategy: OnDeviceTranslationStrategy = .lowLatency
@@ -469,7 +470,7 @@ struct AppSettings: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case pair, routing, layout, saveHistoryOnDevice
+        case pair, defaultLanguage, routing, layout, saveHistoryOnDevice
         case continuousTranslationStrategy
         case onlineProcessingConsentGranted, acceptedOnlineDisclosureVersion, autoSpeak, slowerSpeech
     }
@@ -479,6 +480,7 @@ struct AppSettings: Codable, Equatable, Sendable {
     init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         pair = try values.decodeIfPresent(LanguagePair.self, forKey: .pair) ?? LanguagePair()
+        defaultLanguage = try values.decodeIfPresent(AppLanguage.self, forKey: .defaultLanguage) ?? pair.traveler
         routing = try values.decodeIfPresent(RoutingPreference.self, forKey: .routing) ?? .localOnly
         layout = try values.decodeIfPresent(ConversationLayout.self, forKey: .layout) ?? .heldPhone
         continuousTranslationStrategy = try values.decodeIfPresent(
@@ -501,6 +503,7 @@ struct AppSettings: Codable, Equatable, Sendable {
     func encode(to encoder: any Encoder) throws {
         var values = encoder.container(keyedBy: CodingKeys.self)
         try values.encode(pair, forKey: .pair)
+        try values.encode(defaultLanguage, forKey: .defaultLanguage)
         try values.encode(routing, forKey: .routing)
         try values.encode(layout, forKey: .layout)
         try values.encode(continuousTranslationStrategy, forKey: .continuousTranslationStrategy)

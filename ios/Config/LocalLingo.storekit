@@ -1,31 +1,54 @@
 {
-  "identifier" : "C24F27A4-917B-43BE-9C30-43435FE954A6",
-  "nonRenewingSubscriptions" : [],
-  "products" : [],
-  "settings" : { "_failTransactionsEnabled" : false, "_locale" : "en_US", "_storefront" : "USA" },
-  "subscriptionGroups" : [
+  "identifier": "C24F27A4-917B-43BE-9C30-43435FE954A6",
+  "nonRenewingSubscriptions": [],
+  "products": [],
+  "settings": {
+    "_failTransactionsEnabled": false,
+    "_locale": "en_US",
+    "_storefront": "USA"
+  },
+  "subscriptionGroups": [
     {
-      "id" : "88C0929C-9FB4-4ADE-9DF3-8499A2CD36D3",
-      "localizations" : [{ "description" : "Online Quality translation", "displayName" : "LocalLingo Pro", "locale" : "en_US" }],
-      "name" : "LocalLingo Pro",
-      "subscriptions" : [
+      "id": "88C0929C-9FB4-4ADE-9DF3-8499A2CD36D3",
+      "localizations": [
         {
-          "displayPrice" : "4.99", "familyShareable" : false, "groupNumber" : 1,
-          "internalID" : "B896B30D-BE6D-493D-9DC7-149D3B47EAA5",
-          "localizations" : [{ "description" : "Online Quality for one month", "displayName" : "Pro Monthly", "locale" : "en_US" }],
-          "productID" : "pro.monthly.499", "recurringSubscriptionPeriod" : "P1M",
-          "referenceName" : "Pro Monthly", "subscriptionGroupID" : "88C0929C-9FB4-4ADE-9DF3-8499A2CD36D3", "type" : "RecurringSubscription"
-        },
+          "description": "All on-device translation",
+          "displayName": "Speak Duet",
+          "locale": "en_US"
+        }
+      ],
+      "name": "Speak Duet",
+      "subscriptions": [
         {
-          "displayPrice" : "29.99", "familyShareable" : false, "groupNumber" : 2,
-          "internalID" : "07531040-1B98-42CF-8FC5-AE2E321975B4",
-          "introductoryOffer" : { "displayPrice" : "0", "internalID" : "6471C7AE-98F4-45AC-AE94-41BD596F8392", "numberOfPeriods" : 1, "paymentMode" : "free", "subscriptionPeriod" : "P1W" },
-          "localizations" : [{ "description" : "Online Quality for one year with a seven-day trial", "displayName" : "Pro Annual", "locale" : "en_US" }],
-          "productID" : "pro.annual.2999", "recurringSubscriptionPeriod" : "P1Y",
-          "referenceName" : "Pro Annual", "subscriptionGroupID" : "88C0929C-9FB4-4ADE-9DF3-8499A2CD36D3", "type" : "RecurringSubscription"
+          "displayPrice": "4.99",
+          "familyShareable": false,
+          "groupNumber": 1,
+          "internalID": "B896B30D-BE6D-493D-9DC7-149D3B47EAA5",
+          "localizations": [
+            {
+              "description": "All translation, monthly, with a two-week trial for eligible users",
+              "displayName": "Speak Duet Monthly",
+              "locale": "en_US"
+            }
+          ],
+          "productID": "speakduet.monthly",
+          "recurringSubscriptionPeriod": "P1M",
+          "referenceName": "Speak Duet Monthly",
+          "subscriptionGroupID": "88C0929C-9FB4-4ADE-9DF3-8499A2CD36D3",
+          "type": "RecurringSubscription",
+          "introductoryOffer": {
+            "displayPrice": "0",
+            "internalID": "6471C7AE-98F4-45AC-AE94-41BD596F8392",
+            "numberOfPeriods": 1,
+            "paymentMode": "free",
+            "subscriptionPeriod": "P2W"
+          }
         }
       ]
     }
   ],
-  "version" : { "major" : 3, "minor" : 0 }
+  "version": {
+    "major": 3,
+    "minor": 0
+  }
 }

@@ -4,6 +4,8 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject var settings: SettingsStore
     @ObservedObject var subscription: SubscriptionManager
+    @ObservedObject var access: TranslationAccessManager
+    @ObservedObject var authentication: AuthenticationManager
     @ObservedObject var history: HistoryStore
     @ObservedObject var languagePacks: LanguagePackManager
     let onlineClient: any OnlineTranslationClient
@@ -22,6 +24,13 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section("Conversation") {
+                Picker("Default language", selection: $settings.value.defaultLanguage) {
+                    ForEach(AppLanguage.conversationLanguages) { language in
+                        Text(language.displayName).tag(language)
+                    }
+                }
+                Text("Your default language is saved separately from the current conversation pair.")
+                    .font(.caption).foregroundStyle(.secondary)
                 if !capabilities.onlineFeaturesEnabled {
                     Label(
                         "Conversation audio and text stay on this device. Local history is never uploaded.",
@@ -113,18 +122,19 @@ struct SettingsView: View {
                 if let error = history.errorMessage { Text(error).font(.caption).foregroundStyle(.red) }
             }
 
-            if capabilities.onlineFeaturesEnabled {
-                Section("LocalLingo Pro") {
+            if capabilities.subscriptionsEnabled {
+                Section("Speak Duet subscription") {
+                    Text(access.state.message).font(.footnote)
                     if subscription.hasPro {
-                        Label("Pro active", systemImage: "checkmark.seal.fill")
+                        Label("Subscription active", systemImage: "checkmark.seal.fill")
                             .foregroundStyle(TranslatorTheme.accent)
                     } else {
-                        Button("View Pro options") { showPaywall = true }
+                        Button("View subscription") { showPaywall = true }
                     }
                     Button("Restore purchases") { Task { await subscription.restore() } }
                         .disabled(subscription.loadingState != .idle)
                     Button("Manage subscription") { showManageSubscriptions = true }
-                    if subscription.hasPro {
+                    if subscription.hasPro && capabilities.onlineFeaturesEnabled {
                         Button("Remove this iPhone from Pro devices", role: .destructive) { confirmRemoveDevice = true }
                             .disabled(isRemovingDevice || isReplacingDevice)
                         Text("This frees a subscription device slot. Using Online Quality again will add this iPhone back.")
@@ -140,7 +150,11 @@ struct SettingsView: View {
             }
 
             Section("Privacy & Support") {
-                LabeledContent("Account", value: "Not required")
+                if capabilities.accountsEnabled {
+                    NavigationLink("Account") {
+                        AccountView(authentication: authentication, history: history, settings: settings)
+                    }
+                }
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Audio").font(.subheadline)
                     Text(capabilities.onlineFeaturesEnabled ? "Never saved; Online audio is transiently processed by Google" : "Never saved; processed on this iPhone")
@@ -151,7 +165,7 @@ struct SettingsView: View {
                      ? "Local Only is a hard network boundary for conversation content. Language downloads and App Store features may use Apple services. Saved text history never leaves this iPhone."
                      : "Conversation content stays on this iPhone. Language downloads may use Apple services. Saved text history never leaves this iPhone.")
                     .font(.caption).foregroundStyle(.secondary)
-                Text("Translations can be wrong. LocalLingo is not an emergency, medical, or professional-interpreter service. For urgent situations, contact local emergency services or a qualified interpreter.")
+                Text("Translations can be wrong. Speak Duet is not an emergency, medical, or professional-interpreter service. For urgent situations, contact local emergency services or a qualified interpreter.")
                     .font(.caption).foregroundStyle(.secondary)
                 legalLinks
             }
@@ -159,12 +173,12 @@ struct SettingsView: View {
         .navigationTitle("Settings")
         .tint(TranslatorTheme.accent)
         .task { await languagePacks.refreshAll() }
-        .sheet(isPresented: $showPaywall) { PaywallView(subscription: subscription) }
+        .sheet(isPresented: $showPaywall) { SpeakDuetSubscriptionView(subscription: subscription, access: access) }
         .manageSubscriptionsSheet(isPresented: $showManageSubscriptions)
         .alert("Delete all history?", isPresented: $confirmDeleteAll) {
             Button("Delete all", role: .destructive) { Task { await history.deleteAll() } }
             Button("Cancel", role: .cancel) {}
-        } message: { Text("This permanently removes all LocalLingo text history from this iPhone.") }
+        } message: { Text("This permanently removes all Speak Duet text history from this iPhone.") }
         .alert("Use Online Quality?", isPresented: $showOnlineConsent) {
             Button("Continue") {
                 settings.value.acceptCurrentOnlineProcessingDisclosure()
@@ -320,145 +334,5 @@ struct SettingsView: View {
         } catch {
             deviceMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
-    }
-}
-
-private struct PaywallView: View {
-    @ObservedObject var subscription: SubscriptionManager
-    @Environment(\.dismiss) private var dismiss
-    @State private var showManageSubscriptions = false
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 18) {
-                    Image(systemName: "globe.desk.fill")
-                        .font(.system(size: 48))
-                        .foregroundStyle(TranslatorTheme.accent)
-                        .accessibilityHidden(true)
-                    Text("Online Quality when you want it")
-                        .font(.title.bold())
-                        .multilineTextAlignment(.center)
-                    Text("Use Google Cloud speech recognition and translation. Speech playback stays on your iPhone, and Local conversations remain unlimited and free.")
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-
-                    ForEach(subscription.products, id: \.id) { product in
-                        Button {
-                            Task {
-                                await subscription.purchase(product)
-                                if subscription.hasPro { dismiss() }
-                            }
-                        } label: {
-                            ViewThatFits(in: .horizontal) {
-                                HStack(spacing: 14) {
-                                    productDescription(product)
-                                    Spacer(minLength: 12)
-                                    Text(product.displayPrice)
-                                        .font(.headline)
-                                }
-                                VStack(alignment: .leading, spacing: 10) {
-                                    productDescription(product)
-                                    Text(product.displayPrice)
-                                        .font(.headline)
-                                }
-                            }
-                            .padding()
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(
-                                Color(.secondarySystemGroupedBackground),
-                                in: RoundedRectangle(
-                                    cornerRadius: TranslatorTheme.cornerRadius
-                                )
-                            )
-                            .overlay {
-                                RoundedRectangle(
-                                    cornerRadius: TranslatorTheme.cornerRadius
-                                )
-                                .stroke(
-                                    TranslatorTheme.accent.opacity(0.35),
-                                    lineWidth: 1
-                                )
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(subscription.loadingState != .idle)
-                    }
-
-                    if subscription.loadingState == .loadingProducts {
-                        ProgressView("Loading App Store…")
-                    } else if case .purchasing = subscription.loadingState {
-                        ProgressView("Completing purchase…")
-                    } else if subscription.loadingState == .restoring {
-                        ProgressView("Restoring purchases…")
-                    } else if subscription.products.isEmpty {
-                        Button("Try loading plans again") {
-                            Task { await subscription.refresh() }
-                        }
-                    }
-
-                    if let error = subscription.errorMessage {
-                        Text(error)
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                        Button("Retry") { Task { await subscription.refresh() } }
-                    }
-
-                    HStack {
-                        Button("Restore") { Task { await subscription.restore() } }
-                        Button("Manage") { showManageSubscriptions = true }
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(subscription.loadingState != .idle)
-
-                    Text("Subscriptions renew unless canceled in App Store settings. Any introductory offer and eligibility are shown by the App Store at purchase.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    HStack {
-                        if let url = legalURL("PRIVACY_POLICY_URL") {
-                            Link("Privacy", destination: url)
-                        }
-                        if let url = legalURL("TERMS_URL") {
-                            Link("Terms", destination: url)
-                        }
-                        if let url = legalURL("SUPPORT_URL") {
-                            Link("Support", destination: url)
-                        }
-                    }
-                    .font(.caption)
-                }
-                .padding()
-            }
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                    }
-                    .accessibilityLabel("Close")
-                }
-            }
-        }
-        .tint(TranslatorTheme.accent)
-        .manageSubscriptionsSheet(isPresented: $showManageSubscriptions)
-        .task { if subscription.products.isEmpty { await subscription.refresh() } }
-    }
-
-    private func productDescription(_ product: Product) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(product.displayName)
-                .font(.headline)
-            Text(product.description)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private func legalURL(_ key: String) -> URL? {
-        guard let value = Bundle.main.object(forInfoDictionaryKey: key) as? String,
-              let url = URL(string: value), url.scheme == "https" else { return nil }
-        return url
     }
 }

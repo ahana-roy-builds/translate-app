@@ -2,6 +2,7 @@ import AVFoundation
 import CoreMedia
 import Foundation
 import NaturalLanguage
+import OSLog
 import Speech
 
 @MainActor
@@ -11,6 +12,7 @@ final class AppleContinuousSpeechRecognizer: ContinuousSpeechRecognizing {
         case finalOnly
     }
 
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "SpeakDuet", category: "Recognition")
     private var analyzer: SpeechAnalyzer?
     private var converter: SpeechAnalyzerInputConverter?
     private var inputContinuation: AsyncStream<AnalyzerInput>.Continuation?
@@ -213,10 +215,12 @@ final class AppleContinuousSpeechRecognizer: ContinuousSpeechRecognizing {
 
         let finalResultsReady = try await waitForFinalResults(
             through: end,
+            range: finalizableRange,
             pair: pair,
             generation: sessionGeneration
         )
         let candidates = finalizedCandidates(in: finalizableRange, pair: pair)
+        logger.debug("Finalized range \(startSeconds) to \(endSeconds), candidates \(candidates.count)")
         guard Self.shouldAcceptFinalizedCandidates(
             allModulesDrained: finalResultsReady,
             candidateCount: candidates.count
@@ -480,17 +484,25 @@ final class AppleContinuousSpeechRecognizer: ContinuousSpeechRecognizing {
 
     private func waitForFinalResults(
         through target: CMTime,
+        range: CMTimeRange,
         pair: LanguagePair,
         generation: UUID
     ) async throws -> Bool {
         let languages = [pair.traveler, pair.local]
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: Self.finalResultDrainTimeout(for: pair))
+        let start = clock.now
+        let alternateDeadline = start.advanced(by: Self.finalResultDrainTimeout(for: pair))
+        let firstResultDeadline = start.advanced(by: .seconds(3))
         while !finalizationProgress.includes(languages, through: target) {
             try Task.checkCancellation()
             guard self.generation == generation else { throw CancellationError() }
             if let terminalError { throw terminalError }
-            guard clock.now < deadline else { return false }
+            if clock.now >= alternateDeadline {
+                if clock.now >= firstResultDeadline { return false }
+                if languages.contains(where: { finalAccumulators[$0]?.transcript(in: range) != nil }) {
+                    return false
+                }
+            }
             try await Task.sleep(for: .milliseconds(10))
         }
         return true

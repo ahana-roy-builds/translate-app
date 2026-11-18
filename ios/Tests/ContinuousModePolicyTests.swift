@@ -1310,6 +1310,161 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testInstalledAppleModelsTranslateRecordedPausesOnDevice() async throws {
+#if targetEnvironment(simulator)
+        throw XCTSkip("Requires installed physical-device speech and translation models.")
+#else
+        let pair = LanguagePair(traveler: .englishUS, local: .spanishSpain)
+        let speech = AppleSpeechRecognitionEngine()
+        let translation = AppleTranslationEngine()
+        let listen = await speech.continuousAssetReadiness(pair: pair)
+        let forward = await translation.availability(source: pair.traveler.language, target: pair.local.language)
+        let reverse = await translation.availability(source: pair.local.language, target: pair.traveler.language)
+        try XCTSkipUnless(listen == .ready && forward == .ready && reverse == .ready,
+                          "English/Spanish device assets: listen \(listen), forward \(forward), reverse \(reverse).")
+        let synthesis = AppleSpeechSynthesisEngine()
+        let voicesReady = synthesis.isVoiceAvailable(locale: pair.traveler.locale)
+            && synthesis.isVoiceAvailable(locale: pair.local.locale)
+        let harness = makeHarness(finishBatches: [], decisions: [])
+        let coordinator = ContinuousConversationCoordinator(
+            capture: harness.capture, voiceActivity: SileroVoiceActivityDetector(),
+            recognition: AppleContinuousSpeechRecognizer(), translation: ContinuousBidirectionalTranslationEngine(),
+            playback: PlaybackService(synthesis: synthesis), settings: harness.settings,
+            history: harness.history, access: TestTranslationAuthorization()
+        )
+        defer { coordinator.cancelSession() }
+        coordinator.start(pair: pair)
+
+        func waitFor(_ predicate: () -> Bool) async throws {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(30))
+            while !predicate() {
+                if let error = coordinator.errorMessage { throw PipelineError.server(error) }
+                guard ContinuousClock.now < deadline else {
+                    throw PipelineError.server("Device timed out in \(coordinator.state), \(coordinator.turns.count) committed turns")
+                }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+        }
+        try await waitFor { coordinator.state == .listening }
+        var sample: AVAudioFramePosition = 0
+        for (index, name) in ["SpokenTurn", "SpokenReply", "SpokenTurn"].enumerated() {
+            // Exercise a continuously open stream and automatic restart for playback.
+            coordinator.speakTranslations = voicesReady && index != 0
+            let url = try XCTUnwrap(Bundle(for: Self.self).url(forResource: name, withExtension: "wav"))
+            let recording = try AVAudioFile(forReading: url)
+            let format = recording.processingFormat
+            let started = ContinuousClock.now
+            var speechFileEnded = started
+            for _ in 0..<500 {
+                // AnalyzerInput retains the buffer until the system consumes it.
+                let chunk = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1024))
+                if recording.framePosition < recording.length {
+                    try recording.read(into: chunk, frameCount: 1024)
+                    speechFileEnded = .now
+                } else {
+                    chunk.frameLength = 1024
+                    chunk.floatChannelData![0].initialize(repeating: 0, count: 1024)
+                }
+                let time = AVAudioTime(sampleTime: sample, atRate: format.sampleRate)
+                sample += AVAudioFramePosition(chunk.frameLength)
+                let disposition = try await harness.capture.emit(chunk, at: time)
+                if case .finish = disposition { break }
+                if coordinator.turns.count > index { break }
+                if let error = coordinator.errorMessage { throw PipelineError.server(error) }
+                try await Task.sleep(for: .seconds(Double(chunk.frameLength) / format.sampleRate))
+            }
+            try await waitFor { coordinator.turns.count == index + 1 && coordinator.state == .listening && harness.capture.isActive }
+            let turn = coordinator.turns[index]
+            XCTAssertEqual(turn.speaker, index == 1 ? .local : .traveler)
+            XCTAssertFalse(turn.translatedText.isEmpty)
+            print("Device turn \(index + 1), Auto Speak \(coordinator.speakTranslations), listening \(speechFileEnded.duration(to: .now)) after the last speech buffer")
+        }
+        coordinator.endSession()
+        try await waitFor { coordinator.state == .ended }
+        XCTAssertEqual(coordinator.turns.count, 3)
+#endif
+    }
+
+    @MainActor
+    func testThreeLiveTurnsResumeWithoutStopOrDuplicateFlush() async throws {
+        let range = CMTimeRange(start: .zero, duration: CMTime(seconds: 1, preferredTimescale: 16000))
+        let boundary: [VoiceActivityEvent] = [.speechStarted(at: .zero), .speechEnded(range: range, reason: .silence)]
+        let harness = makeHarness(
+            finishBatches: [], processBatches: Array(repeating: boundary, count: 3),
+            decisions: [Self.decision(text: "hello"), Self.decision(text: "hola", language: .spanishSpain),
+                        Self.decision(text: "goodbye")],
+            translations: ["hola", "hello", "adiós"], access: TestTranslationAuthorization()
+        )
+        harness.coordinator.start(pair: harness.pair)
+        await assertEventually { harness.coordinator.state == .listening }
+        harness.coordinator.speakTranslations = true
+        for count in 1...3 {
+            _ = try await harness.capture.emitBuffer()
+            await assertEventually {
+                harness.coordinator.turns.count == count && harness.capture.startCount == count + 1
+            }
+            XCTAssertEqual(harness.recognition.finishInputCount, count)
+            XCTAssertEqual(harness.recognition.startCount, count + 1)
+        }
+        harness.coordinator.endSession()
+        await assertEventually { harness.coordinator.state == .ended }
+        XCTAssertEqual(harness.coordinator.turns.map(\.translatedText), ["hola", "hello", "adiós"])
+    }
+
+    @MainActor
+    func testLockedTranslationCannotStartCapture() async {
+        let access = TestTranslationAuthorization()
+        access.allowed = false
+        let harness = makeHarness(finishBatches: [], decisions: [], access: access)
+        harness.coordinator.start(pair: harness.pair)
+        XCTAssertEqual(harness.capture.startCount, 0)
+        XCTAssertEqual(harness.coordinator.state, .idle)
+        XCTAssertEqual(harness.coordinator.errorMessage, "Translation access ended.")
+    }
+
+    @MainActor
+    func testExpiryStopsNextContinuousUtteranceAndRetainsCompletedText() async throws {
+        let range = CMTimeRange(start: .zero, duration: CMTime(seconds: 1, preferredTimescale: 1_000))
+        let access = TestTranslationAuthorization()
+        let harness = makeHarness(
+            finishBatches: [],
+            processBatches: [[.speechEnded(range: range, reason: .silence)], [.speechStarted(at: .zero)]],
+            decisions: [Self.decision(text: "hello")], translations: ["hola"], access: access
+        )
+        harness.coordinator.start(pair: harness.pair)
+        await assertEventually { harness.coordinator.state == .listening }
+        _ = try await harness.capture.emitBuffer()
+        await assertEventually { harness.coordinator.turns.count == 1 }
+        access.allowed = false
+        do {
+            _ = try await harness.capture.emitBuffer()
+            XCTFail("An expired session accepted new speech")
+        } catch { harness.capture.fail("Translation access ended.") }
+        XCTAssertFalse(harness.capture.isActive)
+        XCTAssertEqual(harness.coordinator.turns.count, 1)
+        XCTAssertEqual(harness.coordinator.turns.first?.translatedText, "hola")
+    }
+
+    @MainActor
+    func testUtteranceStartedWithAccessCanFinishAfterExpiry() async throws {
+        let range = CMTimeRange(start: .zero, duration: CMTime(seconds: 1, preferredTimescale: 1_000))
+        let access = TestTranslationAuthorization()
+        let harness = makeHarness(
+            finishBatches: [],
+            processBatches: [[.speechStarted(at: .zero)], [.speechEnded(range: range, reason: .silence)]],
+            decisions: [Self.decision(text: "hello")], translations: ["hola"], access: access
+        )
+        harness.coordinator.start(pair: harness.pair)
+        await assertEventually { harness.coordinator.state == .listening }
+        _ = try await harness.capture.emitBuffer()
+        access.allowed = false
+        _ = try await harness.capture.emitBuffer()
+        await assertEventually { harness.coordinator.turns.count == 1 }
+        XCTAssertEqual(harness.coordinator.turns.first?.translatedText, "hola")
+        harness.coordinator.cancelSession()
+    }
+
+    @MainActor
     private func makeHarness(
         finishBatches: [[VoiceActivityEvent]],
         processBatches: [[VoiceActivityEvent]] = [],
@@ -1318,7 +1473,8 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
             traveler: .englishUS,
             local: .spanishSpain
         ),
-        translations: [String] = []
+        translations: [String] = [],
+        access: (any TranslationAuthorizing)? = nil
     ) -> (
         coordinator: ContinuousConversationCoordinator,
         capture: FakeContinuousCapture,
@@ -1351,7 +1507,8 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
             translation: translation,
             playback: PlaybackService(synthesis: synthesis),
             settings: settings,
-            history: history
+            history: history,
+            access: access
         )
         return (
             coordinator,
@@ -1417,6 +1574,14 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
 }
 
 @MainActor
+private final class TestTranslationAuthorization: TranslationAuthorizing {
+    var allowed = true
+    func authorizeTranslation() throws {
+        if !allowed { throw PipelineError.server("Translation access ended.") }
+    }
+}
+
+@MainActor
 private final class FakeContinuousCapture: MicrophoneCapturing {
     var onCaptureInterrupted: (() -> Void)?
     var onCaptureLimitReached: (() -> Void)?
@@ -1456,18 +1621,22 @@ private final class FakeContinuousCapture: MicrophoneCapturing {
     }
 
     func emitBuffer() async throws -> CaptureBufferDisposition {
-        guard isActive, let generation, let onBuffer else {
-            throw PipelineError.server("Capture is not active.")
-        }
         let format = AVAudioFormat(
             standardFormatWithSampleRate: 16_000,
             channels: 1
         )!
         let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 160)!
         buffer.frameLength = 160
+        return try await emit(buffer, at: AVAudioTime(sampleTime: 0, atRate: 16_000))
+    }
+
+    func emit(_ buffer: AVAudioPCMBuffer, at time: AVAudioTime) async throws -> CaptureBufferDisposition {
+        guard isActive, let generation, let onBuffer else {
+            throw PipelineError.server("Capture is not active.")
+        }
         return try await onBuffer(CapturedAudioBuffer(
             buffer: buffer,
-            audioTime: AVAudioTime(sampleTime: 0, atRate: 16_000),
+            audioTime: time,
             generation: generation
         ))
     }

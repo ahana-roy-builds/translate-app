@@ -33,6 +33,42 @@ final class VoiceActivityBoundaryDetectorTests: XCTestCase {
         XCTAssertTrue(result.events.isEmpty)
     }
 
+    @MainActor
+    func testSpokenTurnsEndDuringLiveSilenceBeforeInputIsFinished() async throws {
+        let url = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "SpokenTurn", withExtension: "wav"))
+        let recording = try AVAudioFile(forReading: url)
+        let format = recording.processingFormat
+        let speech = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1024))
+        let silence = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1024))
+        silence.frameLength = 1024
+        silence.floatChannelData![0].initialize(repeating: 0, count: 1024)
+        let detector = SileroVoiceActivityDetector()
+        try await detector.prepare()
+        var sample: AVAudioFramePosition = 0
+        var ends = 0
+
+        func feed(_ buffer: AVAudioPCMBuffer) async throws {
+            let input = VoiceActivityInput(buffer: buffer, audioTime: AVAudioTime(sampleTime: sample, atRate: format.sampleRate))
+            let result = try await detector.process(input)
+            sample += AVAudioFramePosition(buffer.frameLength)
+            for event in result.events {
+                if case .speechEnded(_, .silence) = event { ends += 1 }
+            }
+        }
+
+        for turn in 1...3 {
+            recording.framePosition = 0
+            while recording.framePosition < recording.length {
+                try recording.read(into: speech, frameCount: 1024)
+                try await feed(speech)
+            }
+            for _ in 0..<32 { try await feed(silence) }
+            XCTAssertEqual(ends, turn)
+        }
+        let tail = try await detector.finish()
+        XCTAssertTrue(tail.events.isEmpty)
+    }
+
     func testSpeechEndsAfterConfiguredSilenceWithPadding() {
         var detector = VoiceActivityBoundaryDetector(
             sampleRate: 100,
@@ -56,6 +92,16 @@ final class VoiceActivityBoundaryDetectorTests: XCTestCase {
                 reason: .silence
             )]
         )
+    }
+
+    func testBriefHesitationStaysInTheSameTurn() {
+        var detector = VoiceActivityBoundaryDetector(sampleRate: 100)
+        XCTAssertEqual(detector.process(probability: 1, sampleCount: 50), [.speechStarted(sample: 0)])
+        XCTAssertTrue(detector.process(probability: 0, sampleCount: 40).isEmpty)
+        XCTAssertTrue(detector.process(probability: 1, sampleCount: 50).isEmpty)
+        XCTAssertEqual(detector.process(probability: 0, sampleCount: 100),
+                       [.speechEnded(startSample: 0, endSample: 150, reason: .silence)])
+        XCTAssertTrue(detector.finish().isEmpty)
     }
 
     func testFinishClosesAnActiveUtterance() {

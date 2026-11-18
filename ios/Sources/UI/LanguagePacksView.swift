@@ -193,7 +193,7 @@ struct LanguagePacksView: View {
         Section("Listen Reservations") {
             LabeledContent("In use", value: reservationUsage)
             reservationProgress
-            Text("LocalLingo protects both selected languages. When the iPhone limit is full, it releases the least recently used inactive reservation.")
+            Text("Speak Duet protects both selected languages. When the iPhone limit is full, it releases the least recently used inactive reservation.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

@@ -52,7 +52,16 @@ ONLINE_COLLECTED_DATA_TYPES = {
     "NSPrivacyCollectedDataTypeDeviceID",
     "NSPrivacyCollectedDataTypePurchaseHistory",
 }
-BUILD_ENVIRONMENT_KEYS = COMMON_REQUIRED | ONLINE_DEPLOYMENT_REQUIRED | PRIVATE_BETA_REQUIRED | {
+COMMERCE_REQUIRED = {
+    "ACCOUNTS_ENABLED", "SUBSCRIPTIONS_ENABLED", "TRANSLATION_ACCESS_REQUIRED",
+    "ONLINE_FEATURES_ENABLED", "FACE_TO_FACE_ENABLED", "GOOGLE_REVERSED_CLIENT_ID",
+    "STOREKIT_MONTHLY_PRODUCT_ID", "PRIVACY_POLICY_URL", "TERMS_URL", "SUPPORT_URL",
+}
+ACCOUNT_COLLECTED_DATA_TYPES = {
+    "NSPrivacyCollectedDataTypeName", "NSPrivacyCollectedDataTypeEmailAddress",
+    "NSPrivacyCollectedDataTypeUserID",
+}
+BUILD_ENVIRONMENT_KEYS = COMMON_REQUIRED | ONLINE_DEPLOYMENT_REQUIRED | PRIVATE_BETA_REQUIRED | COMMERCE_REQUIRED | {
     "OTHER_SWIFT_FLAGS"
 }
 LOCAL_OVERRIDE_ALLOWED = {
@@ -70,6 +79,7 @@ LOCAL_OVERRIDE_ALLOWED = {
     "RELEASE_BUILD_ID",
     "MARKETING_VERSION",
     "CURRENT_PROJECT_VERSION",
+    "GOOGLE_REVERSED_CLIENT_ID",
 }
 
 
@@ -219,7 +229,8 @@ def validate_info_plist(path: Path, errors: list[str]) -> None:
             errors.append(f"{path}: {key} must be sourced from {expected}")
 
 
-def validate_privacy_manifest(path: Path, errors: list[str], *, offline_only: bool) -> None:
+def validate_privacy_manifest(path: Path, errors: list[str], *, offline_only: bool,
+                              required_types: set[str] | None = None) -> None:
     contents = read_plist(path, "privacy manifest", errors)
     if contents is None:
         return
@@ -239,14 +250,15 @@ def validate_privacy_manifest(path: Path, errors: list[str], *, offline_only: bo
             for row in collected_rows
             if isinstance(row, dict)
         }
-        missing = sorted(ONLINE_COLLECTED_DATA_TYPES - collected)
+        expected_types = ONLINE_COLLECTED_DATA_TYPES if required_types is None else required_types
+        missing = sorted(expected_types - collected)
         if missing:
             errors.append(f"{path}: online privacy manifest is missing: {', '.join(missing)}")
         for row in collected_rows:
             if not isinstance(row, dict):
                 errors.append(f"{path}: collected data entries must be dictionaries")
                 continue
-            if row.get("NSPrivacyCollectedDataType") in ONLINE_COLLECTED_DATA_TYPES:
+            if row.get("NSPrivacyCollectedDataType") in expected_types:
                 if row.get("NSPrivacyCollectedDataTypeLinked") is not True:
                     errors.append(f"{path}: online collected data must be linked")
                 if row.get("NSPrivacyCollectedDataTypeTracking") is not False:
@@ -286,7 +298,7 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Validate resolved Xcode build-setting environment variables instead of parsing xcconfig.",
     )
-    parser.add_argument("--configuration", choices=("PrivateBeta", "Staging", "TestFlight", "Release"))
+    parser.add_argument("--configuration", choices=("PrivateBeta", "Staging", "TestFlight", "Release", "Commerce"))
     parser.add_argument(
         "--emit-resolved-config",
         type=Path,
@@ -318,11 +330,14 @@ def main() -> int:
     args = parse_args()
     errors: list[str] = []
     configuration = args.configuration or (
+        "Commerce" if args.config.name.startswith("Commerce") else
         "PrivateBeta" if args.config.name.startswith("PrivateBeta")
         else "Staging" if args.config.name.startswith("Staging")
         else "TestFlight" if args.config.name.startswith("TestFlight")
         else "Release"
     )
+    if configuration == "Commerce":
+        return validate_commerce(args, errors)
     resource_root = Path(__file__).resolve().parents[1] / "ios" / "Resources"
     privacy_manifest = args.privacy_manifest or resource_root / (
         "PrivateBeta/PrivacyInfo.xcprivacy"
@@ -437,6 +452,76 @@ def main() -> int:
             print(f"Unable to write resolved config: {exc}", file=sys.stderr)
             return 2
     print(f"iOS {configuration} configuration and AppIcon passed preflight.")
+    return 0
+
+
+def validate_commerce(args: argparse.Namespace, errors: list[str]) -> int:
+    """Validate offline paid distribution independently of the cloud backend."""
+    required = COMMON_REQUIRED | COMMERCE_REQUIRED
+    if args.build_environment:
+        values = {name: os.environ.get(name, "") for name in BUILD_ENVIRONMENT_KEYS}
+    else:
+        values: dict[str, str] = {}
+        read_xcconfig(args.config, values, set(), errors, config_root=args.config.parent.resolve())
+        values = resolve(values)
+    for name in sorted(required):
+        if not values.get(name) or PLACEHOLDER_RE.search(values.get(name, "")):
+            errors.append(f"{name}: missing or placeholder Commerce value")
+    for name in ("ACCOUNTS_ENABLED", "SUBSCRIPTIONS_ENABLED", "TRANSLATION_ACCESS_REQUIRED"):
+        if values.get(name) != "YES": errors.append(f"{name} must be YES in Commerce")
+    for name in ("ONLINE_FEATURES_ENABLED", "FACE_TO_FACE_ENABLED"):
+        if values.get(name) != "NO": errors.append(f"{name} must be NO in Commerce")
+    if values.get("API_BASE_URL") or values.get("STOREKIT_ANNUAL_PRODUCT_ID"):
+        errors.append("Commerce has no online API or annual product")
+    if values.get("APP_RUNTIME_ENVIRONMENT") != "commerce" or values.get("LOCAL_LLM_EXPERIMENT") != "0":
+        errors.append("Commerce must use its offline runtime with the LLM experiment disabled")
+    bundle_id = values.get("APP_BUNDLE_IDENTIFIER", "")
+    if not re.fullmatch(r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+", bundle_id):
+        errors.append("APP_BUNDLE_IDENTIFIER must be a reverse-DNS identifier")
+    product_id = values.get("STOREKIT_MONTHLY_PRODUCT_ID", "")
+    if not product_id.startswith(bundle_id + ".") or not re.fullmatch(r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+", product_id):
+        errors.append("The monthly product ID must be owned by APP_BUNDLE_IDENTIFIER")
+    if not re.fullmatch(r"[A-Z0-9]{10}", values.get("DEVELOPMENT_TEAM", "")):
+        errors.append("DEVELOPMENT_TEAM must be a 10-character Apple Team ID")
+    for name in ("PRIVACY_POLICY_URL", "TERMS_URL", "SUPPORT_URL"):
+        validate_https_url(name, values.get(name, ""), errors, api_base=False)
+    if not re.fullmatch(r"[1-9][0-9]*", values.get("CURRENT_PROJECT_VERSION", "")):
+        errors.append("CURRENT_PROJECT_VERSION must be a positive integer")
+    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", values.get("MARKETING_VERSION", "")):
+        errors.append("MARKETING_VERSION must use major.minor.patch")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{15,127}", values.get("RELEASE_BUILD_ID", "")):
+        errors.append("RELEASE_BUILD_ID must be an immutable 16-128 character identifier")
+    if "LOCAL_LLM_EXPERIMENT" in values.get("SWIFT_ACTIVE_COMPILATION_CONDITIONS", "").split():
+        errors.append("Commerce must not compile the LLM experiment")
+    if re.search(r"(?:^|\s)-D(?:\s+)?LOCAL_LLM_EXPERIMENT(?:\s|$)", values.get("OTHER_SWIFT_FLAGS", "")):
+        errors.append("Commerce must not compile the LLM experiment")
+    disclosure = values.get("MICROPHONE_USAGE_DESCRIPTION", "")
+    if "on-device" not in disclosure or "not sent off this iPhone" not in disclosure:
+        errors.append("Commerce microphone disclosure must describe on-device-only processing")
+    project = Path(__file__).resolve().parents[1] / "ios"
+    firebase = read_plist(project / "Resources" / "GoogleService-Info.plist", "Firebase configuration", errors)
+    if firebase is not None:
+        if firebase.get("BUNDLE_ID") != bundle_id:
+            errors.append("Firebase BUNDLE_ID must match APP_BUNDLE_IDENTIFIER")
+        if firebase.get("REVERSED_CLIENT_ID") != values.get("GOOGLE_REVERSED_CLIENT_ID"):
+            errors.append("Google callback scheme must match the Firebase configuration")
+        for key in ("API_KEY", "GOOGLE_APP_ID", "PROJECT_ID", "CLIENT_ID"):
+            if not firebase.get(key) or PLACEHOLDER_RE.search(str(firebase.get(key, ""))):
+                errors.append(f"Firebase configuration is missing {key}")
+    validate_icon(args.app_icon, errors)
+    validate_info_plist(args.info_plist, errors)
+    validate_privacy_manifest(args.privacy_manifest or project / "Resources" / "Commerce" / "PrivacyInfo.xcprivacy",
+                              errors, offline_only=False, required_types=ACCOUNT_COLLECTED_DATA_TYPES)
+    if errors:
+        for error in errors: print(error, file=sys.stderr)
+        print(f"IOS COMMERCE BLOCKED: {len(errors)} error(s).", file=sys.stderr)
+        return 1
+    if args.emit_resolved_config:
+        output = {"schema_version": "1.0", "configuration": "Commerce"}
+        output.update({name: values[name] for name in sorted(required)})
+        with args.emit_resolved_config.open("x", encoding="utf-8") as handle:
+            handle.write(json.dumps(output, indent=2, sort_keys=True) + "\n")
+    print("iOS Commerce configuration, Firebase identity, and AppIcon passed preflight.")
     return 0
 
 

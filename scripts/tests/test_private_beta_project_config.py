@@ -52,15 +52,22 @@ class PrivateBetaProjectConfigTests(unittest.TestCase):
         project = (ROOT / "ios" / "project.yml").read_text(encoding="utf-8")
         offline_exclusion = (
             'EXCLUDED_SOURCE_FILE_NAMES: "$(inherited) '
-            '$(SRCROOT)/Resources/Online/PrivacyInfo.xcprivacy"'
+            '$(SRCROOT)/Resources/Online/PrivacyInfo.xcprivacy '
+            '$(SRCROOT)/Resources/Commerce/PrivacyInfo.xcprivacy"'
         )
         online_exclusion = (
             'EXCLUDED_SOURCE_FILE_NAMES: "$(inherited) '
-            '$(SRCROOT)/Resources/PrivateBeta/PrivacyInfo.xcprivacy"'
+            '$(SRCROOT)/Resources/PrivateBeta/PrivacyInfo.xcprivacy '
+            '$(SRCROOT)/Resources/Commerce/PrivacyInfo.xcprivacy"'
         )
 
         self.assertEqual(project.count(offline_exclusion), 2)
         self.assertEqual(project.count(online_exclusion), 3)
+        self.assertEqual(project.count(
+            'EXCLUDED_SOURCE_FILE_NAMES: "$(inherited) '
+            '$(SRCROOT)/Resources/Online/PrivacyInfo.xcprivacy '
+            '$(SRCROOT)/Resources/PrivateBeta/PrivacyInfo.xcprivacy"'
+        ), 1)
 
         private_beta = plistlib.loads(
             (ROOT / "ios" / "Resources" / "PrivateBeta" / "PrivacyInfo.xcprivacy").read_bytes()

@@ -8,7 +8,9 @@ python3 - "$root" <<'PY'
 from __future__ import annotations
 
 import os
+import plistlib
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -40,6 +42,54 @@ secret_patterns = [
     re.compile(rb"xox[baprs]-[0-9A-Za-z-]{20,}"),
     re.compile(rb'"type"\s*:\s*"service_account".{0,4096}"private_key"\s*:', re.DOTALL),
 ]
+
+
+def local_firebase_public_key(path: Path, relative: str) -> bytes | None:
+    """Allow only the validated, ignored, untracked iOS client config locally."""
+    if relative != "ios/Resources/GoogleService-Info.plist":
+        return None
+    try:
+        if path.stat().st_size > 65536:
+            return None
+        contents = plistlib.loads(path.read_bytes())
+        allowed_keys = {
+            "API_KEY", "BUNDLE_ID", "CLIENT_ID", "REVERSED_CLIENT_ID",
+            "GCM_SENDER_ID", "GOOGLE_APP_ID", "PLIST_VERSION", "PROJECT_ID",
+            "STORAGE_BUCKET", "DATABASE_URL", "DEEP_LINK_URL_SCHEME",
+            "IS_ADS_ENABLED", "IS_ANALYTICS_ENABLED", "IS_APPINVITE_ENABLED",
+            "IS_GCM_ENABLED", "IS_SIGNIN_ENABLED",
+        }
+        if not isinstance(contents, dict) or set(contents) - allowed_keys:
+            return None
+        if any(not isinstance(value, (str, bool)) for value in contents.values()):
+            return None
+        formats = {
+            "API_KEY": r"AIza[0-9A-Za-z_-]{35}",
+            "BUNDLE_ID": r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+",
+            "CLIENT_ID": r"[A-Za-z0-9-]+\.apps\.googleusercontent\.com",
+            "GOOGLE_APP_ID": r"[0-9]+:[0-9]+:ios:[0-9a-fA-F]+",
+            "PROJECT_ID": r"[a-z][a-z0-9-]{4,28}[a-z0-9]",
+        }
+        if any(not isinstance(contents.get(key), str) or
+               not re.fullmatch(pattern, contents[key])
+               for key, pattern in formats.items()):
+            return None
+        if contents.get("REVERSED_CLIENT_ID") != ".".join(reversed(contents["CLIENT_ID"].split("."))):
+            return None
+        def git(*args: str) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(["git", "-C", str(root), *args],
+                                  capture_output=True, text=True, check=False)
+        top = git("rev-parse", "--show-toplevel")
+        if top.returncode or Path(top.stdout.strip()).resolve() != root:
+            return None
+        if git("ls-files", "--error-unmatch", "--", relative).returncode != 1:
+            return None
+        if git("check-ignore", "--quiet", "--", relative).returncode != 0:
+            return None
+        return contents["API_KEY"].encode("ascii")
+    except (OSError, ValueError, TypeError, plistlib.InvalidFileException):
+        return None
+
 
 errors: list[str] = []
 for directory, names, files in os.walk(root, topdown=True, followlinks=False):
@@ -74,7 +124,8 @@ for directory, names, files in os.walk(root, topdown=True, followlinks=False):
         lower = name.lower()
         if (lower == ".env" or (lower.startswith(".env.") and lower != ".env.example")):
             errors.append(f"{relative}: forbidden .env variant")
-        if name in forbidden_names or lower.endswith((".p8", ".p12", ".mobileprovision")):
+        public_key = local_firebase_public_key(path, relative)
+        if (name in forbidden_names and public_key is None) or lower.endswith((".p8", ".p12", ".mobileprovision")):
             errors.append(f"{relative}: forbidden credential/provisioning filename")
         try:
             matched = False
@@ -82,6 +133,10 @@ for directory, names, files in os.walk(root, topdown=True, followlinks=False):
             with path.open("rb") as handle:
                 for chunk in iter(lambda: handle.read(1024 * 1024), b""):
                     window = overlap + chunk
+                    if public_key is not None:
+                        # Client API keys identify Firebase projects; they are
+                        # not private credentials. Still scan all other bytes.
+                        window = window.replace(public_key, b"[local Firebase client key]")
                     if any(pattern.search(window) for pattern in secret_patterns):
                         matched = True
                         break

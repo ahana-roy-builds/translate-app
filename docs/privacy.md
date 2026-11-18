@@ -1,5 +1,20 @@
 # Privacy design
 
+For the new Speak Duet Commerce configuration, optional Apple/Google account
+identity is processed by the chosen provider and Firebase Authentication.
+Only FirebaseAuth is linked; settings and conversation history are not synced.
+Account deletion is available in Settings and is independent of Apple billing.
+The app-owned Commerce privacy manifest declares name, email address, and user
+ID for app functionality without tracking. The bundled Google Sign-In and
+Firebase Auth manifests also declare provider diagnostic, identifier, usage,
+and other data. Their full disclosure inventory is in the
+[Speak Duet TestFlight tracker](speak-duet-testflight.md#privacy-disclosure-inventory).
+Audit actual SDK traffic/manifests and publish matching privacy/store disclosures
+before distribution. See
+[Speak Duet setup](speak-duet-setup.md). Its initial free period and StoreKit
+subscription gate all new translation; the older free-local/paid-online model
+described below applies to legacy configurations.
+
 This is an engineering baseline, not a substitute for jurisdiction-specific legal review. The shipped privacy notice, in-product mode disclosures, App Store answers, code behavior, Google/Apple terms, SDK configuration, regional deployment, and retention evidence must agree.
 
 ## User-facing processing contract

@@ -1,3 +1,12 @@
+# Speak Duet development and distribution
+
+Use the **Speak Duet** scheme for the new onboarding/accounts/subscription
+experience. Its Archive action selects the offline **Commerce** configuration.
+Read [Speak Duet setup](../docs/speak-duet-setup.md) before preparing an archive;
+the Apple/Firebase identities and public policy URLs are not registered or
+configured automatically. The sections below document the underlying app and
+legacy PrivateBeta/online release configurations.
+
 # LocalLingo iOS
 
 Native SwiftUI iPhone app for alternating travel conversations on iOS 26. It

@@ -1,6 +1,7 @@
 import Combine
 import CoreMedia
 import Foundation
+import OSLog
 
 @MainActor
 final class ContinuousConversationCoordinator: ObservableObject {
@@ -16,6 +17,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
         let range: CMTimeRange
         let createdAt: Date
         let speakTranslation: Bool
+        let authorizedAtSpeechStart: Bool
     }
 
     private enum WorkItem {
@@ -43,6 +45,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
     private let playback: PlaybackService
     private let settings: SettingsStore
     private let history: HistoryStore
+    private let access: (any TranslationAuthorizing)?
     private let extractor = CriticalEntityExtractor()
 
     private var pair = LanguagePair()
@@ -62,7 +65,10 @@ final class ContinuousConversationCoordinator: ObservableObject {
     private var isProcessingWork = false
     private var activeCorrectionTurnID: UUID?
     private var isCapturePaused = false
+    private var recognitionInputClosedForPlayback = false
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "SpeakDuet", category: "ContinuousTalk")
     private var hasActiveSpeech = false
+    private var utteranceWasAuthorized = false
     private var isUserPauseRequested = false
     private var isEnding = false
     private var isSceneActive = true
@@ -75,7 +81,8 @@ final class ContinuousConversationCoordinator: ObservableObject {
         translation: any ContinuousBidirectionalTranslating,
         playback: PlaybackService,
         settings: SettingsStore,
-        history: HistoryStore
+        history: HistoryStore,
+        access: (any TranslationAuthorizing)? = nil
     ) {
         self.capture = capture
         self.voiceActivity = voiceActivity
@@ -84,6 +91,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
         self.playback = playback
         self.settings = settings
         self.history = history
+        self.access = access
 
         capture.onCaptureInterrupted = { [weak self] in
             self?.captureInterrupted()
@@ -148,6 +156,10 @@ final class ContinuousConversationCoordinator: ObservableObject {
 
     func start(pair: LanguagePair) {
         guard !state.isRunning, reviewedPlaybackTask == nil else { return }
+        do { try access?.authorizeTranslation() } catch {
+            errorMessage = localizedMessage(for: error)
+            return
+        }
         stopImmediately(finalState: .idle, clearConversation: true)
         guard ContinuousModePolicy.supports(pair) else {
             state = .failed(
@@ -166,7 +178,9 @@ final class ContinuousConversationCoordinator: ObservableObject {
         workQueue = []
         nextSequence = 0
         isCapturePaused = false
+        recognitionInputClosedForPlayback = false
         hasActiveSpeech = false
+        utteranceWasAuthorized = false
         isUserPauseRequested = false
         isProcessingWork = false
         isEnding = false
@@ -209,7 +223,9 @@ final class ContinuousConversationCoordinator: ObservableObject {
         draft = nil
         workQueue = []
         isCapturePaused = false
+        recognitionInputClosedForPlayback = false
         hasActiveSpeech = false
+        utteranceWasAuthorized = false
         isUserPauseRequested = false
         isProcessingWork = false
         activeCorrectionTurnID = nil
@@ -520,6 +536,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
         generation: UUID
     ) async {
         do {
+            try access?.authorizeTranslation()
             try validate(generation)
             isRequestingPermission = true
             let permissionGranted = await capture.requestPermission()
@@ -556,6 +573,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
     }
 
     private func startCapture(generation: UUID) throws {
+        try access?.authorizeTranslation()
         try validate(generation)
         try capture.start(generation: generation) { [weak self] captured in
             guard let self else { return .finish(.finished) }
@@ -595,11 +613,21 @@ final class ContinuousConversationCoordinator: ObservableObject {
             audioTime: captured.audioTime
         ))
         try validate(generation)
+        if result.events.contains(where: { if case .speechStarted = $0 { true } else { false } }) {
+            try access?.authorizeTranslation()
+            utteranceWasAuthorized = true
+        }
         let shouldPauseForPlayback = handleVoiceActivityEvents(
             result.events,
             generation: generation
         )
 
+        if shouldPauseForPlayback {
+            // Auto Speak stops capture at this boundary. Signal end of input so
+            // the analyzer can drain the turn without waiting for more buffers.
+            _ = try recognition.finishInput()
+            recognitionInputClosedForPlayback = true
+        }
         if shouldPauseForPlayback
             || ContinuousModePolicy.shouldPauseCapture(
                 pendingTurns: pendingWorkCount
@@ -619,6 +647,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
         var shouldPauseForPlayback = false
         for event in events {
             if case .speechStarted = event {
+                logger.debug("Speech started")
                 hasActiveSpeech = true
                 continue
             }
@@ -643,12 +672,15 @@ final class ContinuousConversationCoordinator: ObservableObject {
                 isEnabledNow: true,
                 pair: pair
             )
+            logger.debug("Queueing detected turn \(self.nextSequence)")
             workQueue.append(.utterance(PendingUtterance(
                 sequence: nextSequence,
                 range: range,
                 createdAt: Date(),
-                speakTranslation: speakTranslation
+                speakTranslation: speakTranslation,
+                authorizedAtSpeechStart: utteranceWasAuthorized
             )))
+            utteranceWasAuthorized = false
             shouldPauseForPlayback = shouldPauseForPlayback || speakTranslation
             nextSequence += 1
         }
@@ -691,6 +723,14 @@ final class ContinuousConversationCoordinator: ObservableObject {
             }
             publishOperationalState()
             do {
+                if case let .utterance(pending) = item, pending.authorizedAtSpeechStart {
+                    // A bounded utterance that started with access may finish.
+                } else { try access?.authorizeTranslation() }
+            } catch {
+                failSession(error, generation: generation)
+                return
+            }
+            do {
                 switch item {
                 case let .utterance(pending):
                     try await processUtterance(pending, generation: generation)
@@ -706,6 +746,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
                 isProcessingWork = false
                 break
             } catch PipelineError.noSpeech {
+                logger.debug("Recognition returned no text for detected speech")
                 // A VAD boundary can legitimately contain no recognizer text.
             } catch {
                 guard sessionGeneration == generation else { break }
@@ -717,6 +758,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
             if !isEnding,
                !isUserPauseRequested,
                isCapturePaused,
+               !recognitionInputClosedForPlayback,
                !speakTranslations,
                ContinuousModePolicy.shouldResumeCapture(
                 pendingTurns: pendingWorkCount
@@ -746,6 +788,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
         _ pending: PendingUtterance,
         generation: UUID
     ) async throws {
+        logger.debug("Finalizing turn \(pending.sequence)")
         let decision = try await recognition.finalizeUtterance(in: pending.range)
         try validate(generation)
 
@@ -806,6 +849,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
             alternateTranscript: alternate
         )
         commit(turn)
+        logger.debug("Committed turn \(pending.sequence)")
         errorMessage = nil
         draft = nil
 
@@ -983,8 +1027,22 @@ final class ContinuousConversationCoordinator: ObservableObject {
               isCapturePaused,
               !capture.isActive else { return }
         do {
+            if recognitionInputClosedForPlayback {
+                try await voiceActivity.prepare()
+                try validate(generation)
+                guard state.isRunning, !isEnding, !isUserPauseRequested else { return }
+                try await startRecognition(pair: pair, generation: generation)
+                try validate(generation)
+                guard state.isRunning, !isEnding, !isUserPauseRequested, isSceneActive else {
+                    if !state.isRunning { recognition.stop() }
+                    return
+                }
+                recognitionInputClosedForPlayback = false
+            }
             try startCapture(generation: generation)
             publishOperationalState()
+        } catch is CancellationError {
+            return
         } catch {
             failSession(error, generation: generation)
         }
@@ -1033,6 +1091,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
             guard isSceneActive else { throw CancellationError() }
             try startCapture(generation: generation)
             try validate(generation)
+            recognitionInputClosedForPlayback = false
             resumeTask = nil
             state = .listening
         } catch is CancellationError {
@@ -1165,7 +1224,9 @@ final class ContinuousConversationCoordinator: ObservableObject {
         isProcessingWork = false
         activeCorrectionTurnID = nil
         isCapturePaused = false
+        recognitionInputClosedForPlayback = false
         hasActiveSpeech = false
+        utteranceWasAuthorized = false
         isUserPauseRequested = false
         isEnding = false
         isRequestingPermission = false

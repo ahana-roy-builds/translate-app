@@ -6,10 +6,16 @@ RELEASE_BUILD_ID = development
 SUPPORTS_MACCATALYST = NO
 MARKETING_VERSION = 0.1.0
 CURRENT_PROJECT_VERSION = 1
-MICROPHONE_USAGE_DESCRIPTION = LocalLingo uses the microphone to recognize and translate conversations on this iPhone. Audio is processed on-device and is not sent off this iPhone.
+MICROPHONE_USAGE_DESCRIPTION = Speak Duet uses the microphone to recognize and translate conversations on this iPhone. Audio is processed on-device and is not sent off this iPhone.
 LOCAL_LLM_EXPERIMENT = 0
 LOCAL_LLM_COMPILATION_CONDITION =
 ONLINE_FEATURES_ENABLED = NO
+ACCOUNTS_ENABLED = NO
+SUBSCRIPTIONS_ENABLED = NO
+TRANSLATION_ACCESS_REQUIRED = NO
+GOOGLE_REVERSED_CLIENT_ID =
+// Only Commerce requires a local Firebase client file for preflight.
+FIREBASE_PREFLIGHT_INPUT = $(SRCROOT)/Resources
 FACE_TO_FACE_ENABLED = NO
 SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) $(LOCAL_LLM_COMPILATION_CONDITION)
 OTHER_SWIFT_FLAGS = $(inherited)

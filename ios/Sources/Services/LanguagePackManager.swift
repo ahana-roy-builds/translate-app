@@ -25,6 +25,8 @@ final class LanguagePackManager: ObservableObject {
     private var pendingInstallation: (pair: LanguagePair, generation: Int)?
     private var pendingDirection: TranslationDirection?
     private var activeTranslationSession: TranslationSession?
+    private var checking: (pair: LanguagePair, generation: Int, task: Task<Void, Never>)?
+    private var installationDidSucceed: ((TripReadiness) -> Void)?
     private var generation = 0
     private var catalogGeneration = 0
     private var lastUsed: [AppLanguage: Date]
@@ -82,6 +84,10 @@ final class LanguagePackManager: ObservableObject {
 
     func check(_ pair: LanguagePair) async {
         guard !isWorking else { return }
+        if let checking, checking.pair == pair, checking.generation == generation {
+            await checking.task.value
+            return
+        }
         selectedPair = pair
         generation += 1
         catalogGeneration += 1
@@ -101,14 +107,25 @@ final class LanguagePackManager: ObservableObject {
         }
         markUsed(pair.traveler)
         markUsed(pair.local)
-        operationReadiness = checkingReadiness(pair: pair, generation: current)
+        if readiness.pair == pair {
+            // Keep the selected pair usable until the new probe finishes.
+            operationReadiness = readiness
+            operationReadiness.generation = current
+        } else {
+            operationReadiness = checkingReadiness(pair: pair, generation: current)
+            publishOperationReadiness()
+        }
         setPairError(nil, pair: pair)
-        publishOperationReadiness()
 
-        let inventory = await speech.inventorySnapshot()
-        guard isCurrent(pair, current) else { return }
-        updateInventory(inventory)
-        await refreshOperationReadiness(pair, generation: current)
+        let probe = Task {
+            let inventory = await speech.inventorySnapshot()
+            guard isCurrent(pair, current) else { return }
+            updateInventory(inventory)
+            await refreshOperationReadiness(pair, generation: current)
+        }
+        checking = (pair, current, probe)
+        await probe.value
+        if checking?.generation == current { checking = nil }
     }
 
     func refreshAll() async {
@@ -141,7 +158,7 @@ final class LanguagePackManager: ObservableObject {
         publishLanguageReadiness(raw, for: language, inventory: inventory)
     }
 
-    func install(_ pair: LanguagePair) async {
+    func install(_ pair: LanguagePair, onReady: ((TripReadiness) -> Void)? = nil) async {
         guard !isWorking else {
             errorMessage = "Wait for the current language-pack operation to finish."
             return
@@ -161,6 +178,7 @@ final class LanguagePackManager: ObservableObject {
         errorMessage = nil
         noticeMessage = nil
         isWorking = true
+        installationDidSucceed = onReady
         activeOperation = .pair(pair)
 
         operationReadiness = readiness.pair == pair
@@ -216,7 +234,7 @@ final class LanguagePackManager: ObservableObject {
             if forward == .ready, reverse == .ready {
                 markUsed(pair.traveler)
                 markUsed(pair.local)
-                completeOperation()
+                completeOperation(installed: true)
                 return
             }
 
@@ -660,7 +678,7 @@ final class LanguagePackManager: ObservableObject {
             if operationReadiness.translateReverse == .ready {
                 markUsed(token.pair.traveler)
                 markUsed(token.pair.local)
-                completeOperation()
+                completeOperation(installed: true)
             } else {
                 await beginTranslationPreparation(
                     direction: .reverse,
@@ -673,7 +691,7 @@ final class LanguagePackManager: ObservableObject {
             publishOperationReadiness()
             markUsed(token.pair.traveler)
             markUsed(token.pair.local)
-            completeOperation()
+            completeOperation(installed: true)
         }
     }
 
@@ -899,10 +917,13 @@ final class LanguagePackManager: ObservableObject {
         installationProgress = nil
     }
 
-    private func completeOperation() {
+    private func completeOperation(installed: Bool = false) {
+        let completion = installationDidSucceed
+        installationDidSucceed = nil
         isWorking = false
         activeOperation = nil
         clearPendingOperation()
+        if installed { completion?(operationReadiness) }
     }
 
     private func normalizePendingReadiness() {

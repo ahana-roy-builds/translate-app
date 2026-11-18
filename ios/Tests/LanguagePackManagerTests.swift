@@ -10,6 +10,26 @@ final class LanguagePackManagerTests: XCTestCase {
         local: .japaneseJapan
     )
 
+    func testRecheckPreservesLastResultUntilMissingAssetConfirmed() async {
+        let speech = FakeSpeechAssetManager(readiness: readySpeechReadiness)
+        let manager = makeManager(speech: speech)
+        await manager.check(spanishPair)
+        let ready = manager.readiness
+        XCTAssertTrue(ready.isReady)
+        speech.blocksNextReadiness = true
+        speech.readiness["en-US"] = .downloadRequired
+        let probe = Task { await manager.check(spanishPair) }
+        await waitUntil { speech.readinessStarted }
+        XCTAssertEqual(manager.readiness, ready)
+        let coalesced = Task { await manager.check(spanishPair) }
+        await Task.yield()
+        XCTAssertEqual(manager.readiness, ready)
+        speech.resumeReadiness()
+        await probe.value
+        await coalesced.value
+        XCTAssertEqual(manager.readiness.listenTraveler, .downloadRequired)
+    }
+
     func testCheckSupportsNonEnglishPairAndUsesExactTranslationDirections() async {
         let speech = FakeSpeechAssetManager(readiness: [
             "fr-FR": .ready,
@@ -402,7 +422,9 @@ final class LanguagePackManagerTests: XCTestCase {
         let manager = makeManager(speech: speech)
 
         await manager.check(spanishPair)
-        let installTask = Task { await manager.install(spanishPair) }
+        let installTask = Task {
+            await manager.install(spanishPair) { _ in XCTFail("Cancelled setup advanced onboarding") }
+        }
         await waitUntil { speech.installStarted }
         XCTAssertEqual(manager.installationProgress ?? -1, 0.25, accuracy: 0.001)
 
@@ -444,8 +466,10 @@ final class LanguagePackManagerTests: XCTestCase {
         let manager = makeManager(speech: speech, translation: translation)
 
         await manager.check(spanishPair)
-        await manager.install(spanishPair)
+        var completions: [TripReadiness] = []
+        await manager.install(spanishPair) { completions.append($0) }
 
+        XCTAssertTrue(completions.isEmpty)
         XCTAssertTrue(manager.isWorking)
         XCTAssertNotNil(manager.translationDownloadConfiguration)
         XCTAssertEqual(manager.readiness.translateForward, .checking)
@@ -453,6 +477,7 @@ final class LanguagePackManagerTests: XCTestCase {
 
         await manager.preparePendingTranslation {}
 
+        XCTAssertTrue(completions.isEmpty)
         XCTAssertTrue(manager.isWorking)
         XCTAssertEqual(manager.readiness.translateForward, .ready)
         XCTAssertEqual(manager.readiness.translateReverse, .checking)
@@ -460,6 +485,7 @@ final class LanguagePackManagerTests: XCTestCase {
 
         await manager.preparePendingTranslation {}
 
+        XCTAssertEqual(completions, [manager.readiness])
         XCTAssertFalse(manager.isWorking)
         XCTAssertEqual(manager.readiness.translateForward, .ready)
         XCTAssertEqual(manager.readiness.translateReverse, .ready)
@@ -473,7 +499,7 @@ final class LanguagePackManagerTests: XCTestCase {
         let manager = makeManager(speech: speech, translation: translation)
 
         await manager.check(spanishPair)
-        await manager.install(spanishPair)
+        await manager.install(spanishPair) { _ in XCTFail("Unverified setup advanced onboarding") }
         await manager.preparePendingTranslation({}, isReady: { false })
 
         XCTAssertFalse(manager.isWorking)

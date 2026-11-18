@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import plistlib
 import subprocess
 import tempfile
 import unittest
@@ -78,6 +79,55 @@ class SensitiveContentTests(unittest.TestCase):
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("special non-regular", result.stderr)
+
+    def firebase_scan(self, *, ignored: bool = True, tracked: bool = False,
+                      relative: str = "ios/Resources/GoogleService-Info.plist",
+                      extra: dict | None = None, suffix: str = "") -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            subprocess.run(["git", "init", "--quiet", str(root)], check=True)
+            if ignored:
+                (root / ".gitignore").write_text("GoogleService-Info.plist\n")
+            contents = dict(
+                API_KEY="AI" + "za" + "a" * 35, BUNDLE_ID="com.acme.speakduet",
+                CLIENT_ID="123-abc.apps.googleusercontent.com",
+                REVERSED_CLIENT_ID="com.googleusercontent.apps.123-abc",
+                GOOGLE_APP_ID="1:123:ios:abc123", PROJECT_ID="speak-duet-test",
+            )
+            contents.update(extra or {})
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(plistlib.dumps(contents) + suffix.encode())
+            if tracked:
+                subprocess.run(["git", "-C", str(root), "add", "--force", "--", relative], check=True)
+            return subprocess.run(
+                ["bash", str(SCANNER)], text=True, capture_output=True,
+                env=dict(os.environ, LOCALLINGO_SCAN_ROOT=str(root)), check=False,
+            )
+
+    def test_valid_local_firebase_config_must_be_ignored_and_untracked(self) -> None:
+        self.assertEqual(self.firebase_scan().returncode, 0)
+        for options in (dict(ignored=False), dict(tracked=True),
+                        dict(relative="GoogleService-Info.plist")):
+            with self.subTest(options=options):
+                result = self.firebase_scan(**options)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("credential/provisioning filename", result.stderr)
+
+    def test_local_firebase_exception_rejects_unknown_fields_and_wrong_callback(self) -> None:
+        for extra in (dict(private_key="private material"),
+                      dict(REVERSED_CLIENT_ID="com.googleusercontent.apps.wrong")):
+            with self.subTest(extra=extra):
+                self.assertNotEqual(self.firebase_scan(extra=extra).returncode, 0)
+
+    def test_local_firebase_still_scans_other_values_and_xml_comments(self) -> None:
+        token = "A" + "KIA" + "ABCDEFGHIJKLMNOP"
+        for options in (dict(extra=dict(STORAGE_BUCKET=token)),
+                        dict(suffix="<!-- " + token + " -->")):
+            with self.subTest(options=options):
+                result = self.firebase_scan(**options)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("credential material", result.stderr)
 
 
 if __name__ == "__main__":

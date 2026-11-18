@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleDevelopmentRegion</key><string>en</string>
-    <key>CFBundleDisplayName</key><string>LocalLingo</string>
+    <key>CFBundleDisplayName</key><string>Speak Duet</string>
     <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
     <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
@@ -13,7 +13,7 @@
     <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
     <key>LSRequiresIPhoneOS</key><true/>
     <key>NSMicrophoneUsageDescription</key><string>$(MICROPHONE_USAGE_DESCRIPTION)</string>
-    <key>NSSpeechRecognitionUsageDescription</key><string>LocalLingo converts speech into text on this device so it can translate your conversation.</string>
+    <key>NSSpeechRecognitionUsageDescription</key><string>Speak Duet converts speech into text on this device so it can translate your conversation.</string>
     <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
     <key>UILaunchScreen</key><dict/>
     <key>UISupportedInterfaceOrientations</key>
@@ -22,6 +22,13 @@
     <key>APP_RUNTIME_ENVIRONMENT</key><string>$(APP_RUNTIME_ENVIRONMENT)</string>
     <key>RELEASE_BUILD_ID</key><string>$(RELEASE_BUILD_ID)</string>
     <key>ONLINE_FEATURES_ENABLED</key><string>$(ONLINE_FEATURES_ENABLED)</string>
+    <key>ACCOUNTS_ENABLED</key><string>$(ACCOUNTS_ENABLED)</string>
+    <key>SUBSCRIPTIONS_ENABLED</key><string>$(SUBSCRIPTIONS_ENABLED)</string>
+    <key>TRANSLATION_ACCESS_REQUIRED</key><string>$(TRANSLATION_ACCESS_REQUIRED)</string>
+    <key>CFBundleURLTypes</key><array><dict>
+        <key>CFBundleTypeRole</key><string>Editor</string>
+        <key>CFBundleURLSchemes</key><array><string>$(GOOGLE_REVERSED_CLIENT_ID)</string></array>
+    </dict></array>
     <key>FACE_TO_FACE_ENABLED</key><string>$(FACE_TO_FACE_ENABLED)</string>
     <key>STOREKIT_MONTHLY_PRODUCT_ID</key><string>$(STOREKIT_MONTHLY_PRODUCT_ID)</string>
     <key>STOREKIT_ANNUAL_PRODUCT_ID</key><string>$(STOREKIT_ANNUAL_PRODUCT_ID)</string>

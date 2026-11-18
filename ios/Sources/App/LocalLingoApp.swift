@@ -9,6 +9,7 @@ struct LocalLingoApp: App {
         WindowGroup {
             ZStack {
                 RootView(container: container)
+                    .onOpenURL { _ = container.authentication.handleURL($0) }
                 if scenePhase != .active { PrivacyCover().transition(.opacity) }
                 PrivacyShieldHost(isPresented: scenePhase != .active).frame(width: 0, height: 0)
             }
@@ -17,12 +18,13 @@ struct LocalLingoApp: App {
                 container.conversation.handleSceneActivity(isActive: isActive)
                 container.continuousConversation.handleSceneActivity(isActive: isActive)
                 if isActive {
+                    container.access.refresh()
                     Task {
                         await container.languagePacks.check(container.settings.value.pair)
                         await container.languagePacks.refreshAll()
                     }
                 }
-                if isActive, container.capabilities.onlineFeaturesEnabled {
+                if isActive, container.capabilities.subscriptionsEnabled {
                     Task { await container.subscription.refresh() }
                 }
             }
@@ -38,7 +40,7 @@ struct PrivacyCover: View {
                 Image(systemName: "lock.shield.fill")
                     .font(.system(size: 44))
                     .foregroundStyle(TranslatorTheme.accent)
-                Text("LocalLingo").font(.title2.bold())
+                Text("Speak Duet").font(.title2.bold())
                 Text("Conversation hidden for privacy").font(.caption).foregroundStyle(.secondary)
             }
         }

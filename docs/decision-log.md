@@ -57,7 +57,7 @@ required by the launch checklist.
 | D-04 | Deferred | Keep the custom few-billion-parameter MLX/Qwen engine research-only. |
 | D-05 | Accepted | Offer explicit Local Only, Online Quality, and consented Auto modes. |
 | D-06 | Accepted | Put Google speech/translation behind a first-party Cloud Run backend; keep TTS on-device. |
-| D-07 | Accepted | Make local use free and gate Online Quality with StoreKit Pro. |
+| D-07 | Legacy configurations | Make local use free and gate Online Quality with StoreKit Pro; superseded by D-22 for Speak Duet. |
 | D-08 | Accepted | Authenticate installations with App Attest and short-lived backend sessions. |
 | D-09 | Accepted | Keep conversation content out of backend persistence and application logs. |
 | D-10 | Superseded | The earlier separate local/CloudKit history design is replaced by D-17. |
@@ -72,6 +72,7 @@ required by the launch checklist.
 | D-19 | Accepted | Anchor release evidence in GitHub OIDC/Sigstore attestations and digest-bound approvals. |
 | D-20 | Accepted | Let any iPhone that can install iOS 26 launch, then gate continuous and locally resolved recording on selected-pair capability and readiness. |
 | D-21 | Accepted | Expose English-Hindi only as `Hindi (Beta)` in Debug and the offline Private Beta; omit it from standard TestFlight and Release until physical-device gates pass. |
+| D-22 | Accepted | Speak Duet gates all new translation after a device-local free period, with one monthly subscription and optional Apple/Google accounts. |
 
 ## Detailed decisions
 
@@ -617,6 +618,34 @@ fixture and live pipelines complete without egress, Translation and synthesis
 are exercised in both directions, and the evaluation contract's quality,
 safety, performance, stability, and reviewer gates pass on the required device
 tiers.
+
+### D-22 — Speak Duet offline commerce and optional accounts
+
+**Decision (2026-11-04):** In this secondary repository, Speak Duet's Debug and
+Commerce experiences offer 14 elapsed days from first use on each device,
+followed by one monthly subscription unlocking all new translation. The
+intended U.S. price is $4.99/month and an additional two-week App Store trial
+is offered only to eligible users who explicitly authorize the subscription.
+This supersedes D-07's permanently free local tier for these configurations.
+Existing results, replay, export, and deletion remain available after expiry.
+
+Default-language onboarding is required; Apple/Google signup is optional.
+Firebase Authentication manages identity without syncing conversation content
+or settings. StoreKit is the subscription authority independently of Firebase
+sign-in. The commercial path does not enable the cloud translation backend.
+
+**Tradeoff:** The first-use period is stored locally in the device-only
+Keychain, with best-effort persistence and clock-rollback detection. It does
+not prevent repeat access on new/erased devices or guarantee uninstall
+persistence. Strong cross-device trial enforcement is deferred. Paid offline
+access ends at the last verified expiration or billing-grace deadline.
+
+**Distribution:** The proposed permanent identity is
+`com.ahanaroy.speakduet`; registration remains pending. Real sign-in and
+purchases require the external setup described in
+[Speak Duet setup](speak-duet-setup.md). The new Commerce archive configuration
+has separate account disclosures and preflight; legacy online release gates
+and the original account-free PrivateBeta remain distinct.
 
 ## Open decisions before production release
 

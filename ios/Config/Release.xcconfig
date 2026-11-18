@@ -13,7 +13,7 @@ STOREKIT_ANNUAL_PRODUCT_ID = REPLACE_ANNUAL_PRODUCT_ID
 PRIVACY_POLICY_URL = https:/$()/REPLACE_PRIVACY_POLICY_URL
 TERMS_URL = https:/$()/REPLACE_TERMS_URL
 SUPPORT_URL = https:/$()/REPLACE_SUPPORT_URL
-MICROPHONE_USAGE_DESCRIPTION = LocalLingo uses the microphone while you start a conversation turn. Local Only processes audio on this iPhone; if you select Online Quality, audio is sent to LocalLingo and Google for speech recognition and translation.
+MICROPHONE_USAGE_DESCRIPTION = Speak Duet uses the microphone while you start a conversation turn. Local Only processes audio on this iPhone; if you select Online Quality, audio is sent to LocalLingo and Google for speech recognition and translation.
 ONLINE_FEATURES_ENABLED = YES
 FACE_TO_FACE_ENABLED = YES
 

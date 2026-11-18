@@ -17,7 +17,7 @@ struct ConversationView: View {
             if !orchestrator.partialTranscript.isEmpty { partial }
             controls
         }
-        .navigationTitle("Conversation")
+        .navigationTitle("Manual conversation")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {

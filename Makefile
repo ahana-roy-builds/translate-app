@@ -42,7 +42,7 @@ infra-apply:
 ios-test:
 	@command -v xcodegen >/dev/null || (echo "xcodegen is required" >&2; exit 2)
 	@command -v xcodebuild >/dev/null || (echo "xcodebuild is required" >&2; exit 2)
-	cd ios && xcodegen generate && xcodebuild -project LocalLingo.xcodeproj -scheme LocalLingo -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 17' test
+	cd ios && xcodegen generate && xcodebuild -project LocalLingo.xcodeproj -scheme 'Speak Duet' -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5' test
 
 ios-private-beta-compile:
 	@command -v xcodegen >/dev/null || (echo "xcodegen is required" >&2; exit 2)

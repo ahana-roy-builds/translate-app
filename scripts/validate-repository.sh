@@ -46,8 +46,10 @@ for path in (
     Path("ios/Config/LocalLingo.PrivateBeta.entitlements"),
     Path("ios/Config/LocalLingo.TestFlight.entitlements"),
     Path("ios/Config/LocalLingo.Release.entitlements"),
+    Path("ios/Config/LocalLingo.Commerce.entitlements"),
     Path("ios/Resources/Online/PrivacyInfo.xcprivacy"),
     Path("ios/Resources/PrivateBeta/PrivacyInfo.xcprivacy"),
+    Path("ios/Resources/Commerce/PrivacyInfo.xcprivacy"),
 ):
     with path.open("rb") as handle:
         plistlib.load(handle)
@@ -107,7 +109,7 @@ if 'TARGETED_DEVICE_FAMILY: "1"' not in project or '"1,2"' in project:
     raise SystemExit("ios/project.yml must target iPhone only")
 if "LocalLingo.entitlements" in project:
     raise SystemExit("ios/project.yml references the unsafe legacy entitlement file")
-for name in ("Debug", "Staging", "PrivateBeta", "TestFlight", "Release"):
+for name in ("Debug", "Staging", "PrivateBeta", "TestFlight", "Release", "Commerce"):
     if f"{name}: Config/{name}.xcconfig" not in project:
         raise SystemExit(f"ios/project.yml is missing {name} xcconfig wiring")
 if "validate-ios-release-config.py" not in project:
@@ -125,16 +127,25 @@ if "PRIVACY_POLICY_URL = https:/$()/REPLACE_PRIVATE_BETA_PRIVACY_POLICY_URL" not
     raise SystemExit("PrivateBeta must fail closed until a public privacy policy is configured")
 offline_privacy_exclusion = (
     'EXCLUDED_SOURCE_FILE_NAMES: "$(inherited) '
-    '$(SRCROOT)/Resources/Online/PrivacyInfo.xcprivacy"'
+    '$(SRCROOT)/Resources/Online/PrivacyInfo.xcprivacy '
+    '$(SRCROOT)/Resources/Commerce/PrivacyInfo.xcprivacy"'
 )
 online_privacy_exclusion = (
     'EXCLUDED_SOURCE_FILE_NAMES: "$(inherited) '
-    '$(SRCROOT)/Resources/PrivateBeta/PrivacyInfo.xcprivacy"'
+    '$(SRCROOT)/Resources/PrivateBeta/PrivacyInfo.xcprivacy '
+    '$(SRCROOT)/Resources/Commerce/PrivacyInfo.xcprivacy"'
 )
 if project.count(offline_privacy_exclusion) != 2:
     raise SystemExit("Debug and PrivateBeta must exclude the online privacy manifest")
 if project.count(online_privacy_exclusion) != 3:
     raise SystemExit("Staging, TestFlight, and Release must exclude the PrivateBeta privacy manifest")
+commerce_privacy_exclusion = (
+    'EXCLUDED_SOURCE_FILE_NAMES: "$(inherited) '
+    '$(SRCROOT)/Resources/Online/PrivacyInfo.xcprivacy '
+    '$(SRCROOT)/Resources/PrivateBeta/PrivacyInfo.xcprivacy"'
+)
+if project.count(commerce_privacy_exclusion) != 1:
+    raise SystemExit("Commerce must exclusively package its account-data privacy manifest")
 if "CLOUDKIT_CONTAINER_IDENTIFIER" in project or "iCloud." in project:
     raise SystemExit("local-history v1 project must not contain an iCloud identifier")
 

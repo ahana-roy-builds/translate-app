@@ -3,7 +3,14 @@
 DerivedData/
 *.xcuserstate
 xcuserdata/
-ios/LocalLingo.xcodeproj/
+ios/LocalLingo.xcodeproj/*
+!ios/LocalLingo.xcodeproj/project.xcworkspace/
+ios/LocalLingo.xcodeproj/project.xcworkspace/*
+!ios/LocalLingo.xcodeproj/project.xcworkspace/xcshareddata/
+ios/LocalLingo.xcodeproj/project.xcworkspace/xcshareddata/*
+!ios/LocalLingo.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+ios/LocalLingo.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/*
+!ios/LocalLingo.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 *.moved-aside
 *.xccheckout
 *.xcscmblueprint

@@ -145,7 +145,7 @@ struct ContinuousConversationView: View {
             }
         }
         .background(Color(uiColor: .systemBackground))
-        .navigationTitle("LocalLingo")
+        .navigationTitle("Speak Duet")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(coordinator.isSessionActive ? .hidden : .visible, for: .tabBar)
         .toolbar {
@@ -193,7 +193,10 @@ struct ContinuousConversationView: View {
 
     @ViewBuilder
     private var setupNotice: some View {
-        if shouldShowReadinessPanel {
+        if isCheckingInitialPair && !coordinator.isSessionActive {
+            ProgressView("Checking languages…")
+                .padding()
+        } else if shouldShowReadinessPanel {
             readinessPanel
                 .transition(.move(edge: .top).combined(with: .opacity))
         } else if shouldShowVoiceNotice {
@@ -435,6 +438,11 @@ struct ContinuousConversationView: View {
 
     private var overflowMenu: some View {
         Menu {
+            Button {
+                settings.useDefaultLanguage()
+            } label: {
+                Label("Use my default language", systemImage: "person.crop.circle")
+            }
             NavigationLink {
                 ConversationView(
                     orchestrator: conversation,
@@ -681,7 +689,7 @@ struct ContinuousConversationView: View {
                     Label("Translations can be wrong", systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
                     Text(
-                        "LocalLingo is not an emergency, medical, or professional-interpreter service. For urgent situations, contact local emergency services or a qualified interpreter."
+                        "Speak Duet is not an emergency, medical, or professional-interpreter service. For urgent situations, contact local emergency services or a qualified interpreter."
                     )
                     .foregroundStyle(.secondary)
                 } header: {
@@ -804,7 +812,7 @@ struct ContinuousConversationView: View {
     private var emptyStateTitle: String {
         switch coordinator.state {
         case .idle:
-            coreReady ? "Ready to translate" : "Offline setup required"
+            isCheckingInitialPair ? "Preparing" : (coreReady ? "Ready to translate" : "Offline setup required")
         case .preparing:
             "Preparing"
         case .pausing:
@@ -829,17 +837,18 @@ struct ContinuousConversationView: View {
     private var emptyStateMessage: String {
         switch coordinator.state {
         case .idle:
-            coreReady
+            if isCheckingInitialPair { return "Checking this language pair." }
+            return coreReady
                 ? "Tap the microphone and speak either language."
                 : "Download the selected languages to start."
         case .pausedByUser:
-            "Tap resume when you are ready to continue."
+            return "Tap resume when you are ready to continue."
         case .ended:
-            "Tap the microphone to start a new conversation."
+            return "Tap the microphone to start a new conversation."
         case .failed:
-            "Tap retry to keep this transcript and reopen the microphone."
+            return "Tap retry to keep this transcript and reopen the microphone."
         default:
-            coordinator.statusText
+            return coordinator.statusText
         }
     }
 
@@ -858,8 +867,13 @@ struct ContinuousConversationView: View {
         }
     }
 
+    private var isCheckingInitialPair: Bool {
+        !languagePacks.isWorking && (languagePacks.readiness.pair != settings.value.pair
+            || languagePacks.readiness.listenTraveler == .checking)
+    }
+
     private var shouldShowReadinessPanel: Bool {
-        !coordinator.isSessionActive
+        !coordinator.isSessionActive && !isCheckingInitialPair
             && (!coreReady
                 || isPreparingSelectedPair
                 || isOtherLanguagePackOperationInProgress

@@ -24,6 +24,7 @@ final class ConversationOrchestrator: ObservableObject {
     private let settings: SettingsStore
     private let network: NetworkStatus
     private let subscription: SubscriptionManager
+    private let access: (any TranslationAuthorizing)?
     private let history: HistoryStore
     private let notificationCenter: NotificationCenter
     private let extractor = CriticalEntityExtractor()
@@ -51,6 +52,7 @@ final class ConversationOrchestrator: ObservableObject {
         network: NetworkStatus,
         subscription: SubscriptionManager,
         history: HistoryStore,
+        access: (any TranslationAuthorizing)? = nil,
         onlineFeaturesEnabled: Bool = false,
         notificationCenter: NotificationCenter = .default
     ) {
@@ -61,6 +63,7 @@ final class ConversationOrchestrator: ObservableObject {
         self.settings = settings
         self.network = network
         self.subscription = subscription
+        self.access = access
         self.history = history
         router = ConversationRouter(onlineFeaturesEnabled: onlineFeaturesEnabled)
         self.notificationCenter = notificationCenter
@@ -132,6 +135,7 @@ final class ConversationOrchestrator: ObservableObject {
     private func startPreparingTurn(speaker: SpeakerSide) {
         let operation = beginOperation()
         do {
+            try access?.authorizeTranslation()
             guard turns.count < ConversationContentPolicy.maximumTurns else {
                 throw PipelineError.server("This conversation reached 500 turns. Start a new conversation to continue.")
             }
@@ -220,6 +224,7 @@ final class ConversationOrchestrator: ObservableObject {
             guard ConversationSceneLifecyclePolicy.mayStartAudio(isSceneActive: isSceneActive) else {
                 throw CancellationError()
             }
+            try access?.authorizeTranslation()
             try audio.start { buffer in try pipeline.append(buffer) }
             try transition(.listening(speaker))
         } catch is CancellationError {
@@ -275,6 +280,7 @@ final class ConversationOrchestrator: ObservableObject {
         let operation = operationID
         let cleaned: String
         do {
+            try access?.authorizeTranslation()
             cleaned = try TurnTextPolicy.validated(editableSource)
             try transition(.translating(context.speaker))
         } catch {
@@ -352,6 +358,7 @@ final class ConversationOrchestrator: ObservableObject {
         guard state.acceptsMicrophoneTap else { return }
         let operation = beginOperation()
         do {
+            try access?.authorizeTranslation()
             guard turns.count < ConversationContentPolicy.maximumTurns else {
                 throw PipelineError.server("This conversation reached 500 turns. Start a new conversation to continue.")
             }
@@ -418,6 +425,7 @@ final class ConversationOrchestrator: ObservableObject {
             activeContext = context
             try transition(.reviewing(speaker))
             try transition(.translating(speaker))
+            try access?.authorizeTranslation()
             let rawResult = try await pipeline.translateText(
                 cleaned,
                 source: selectedPair.source(for: speaker),

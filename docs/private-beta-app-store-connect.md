@@ -1,5 +1,10 @@
 # Private beta App Store Connect package
 
+This package describes the original LocalLingo account-free beta. Do not reuse
+its bundle identity, no-collected-data answers, or free-access description for
+Speak Duet. Use [Speak Duet setup](speak-duet-setup.md) for the new commercial
+configuration and prepare new App Store metadata under Ahana's account.
+
 Prepared for the offline-only `PrivateBeta` configuration on 2026-08-11 and
 amended for the Hindi beta on 2026-08-15. This document contains no private
 contact values. Replace bracketed private fields only in App Store Connect,

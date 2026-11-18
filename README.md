@@ -1,4 +1,15 @@
-# LocalLingo
+# Speak Duet
+
+Speak Duet (previously LocalLingo) adds language onboarding, a device-local
+14-day free-access period, optional Apple/Google accounts, and one monthly
+subscription for all translation. The intended U.S. price is $4.99/month with
+an additional two-week introductory trial for eligible subscribers.
+
+Use the **Speak Duet** Xcode scheme for local development and the **Commerce**
+archive configuration for the new offline paid app. See
+[Speak Duet setup](docs/speak-duet-setup.md) for implemented behavior, testing,
+and the Apple/Firebase configuration still required before distribution.
+Internal project/module names remain LocalLingo to preserve existing data.
 
 LocalLingo is an offline-first iOS conversation translator for travelers. The
 launch implementation supports bidirectional English–Spanish and
@@ -135,8 +146,8 @@ in this repository.
 - No marketing-model allowlist: any iPhone that can install the iOS 26 build may
   launch, while selected-pair capability and asset readiness gate continuous
   conversation and routes resolved to Local Only
-- Free unlimited local conversations
-- StoreKit Pro products for monthly and annual online quality access
+- Fourteen days of free local translation, followed by optional subscription access
+- One monthly Speak Duet subscription; legacy online configurations retain their separate product setup
 - Optional on-device, text-only history
 
 ## Privacy invariants

@@ -48,6 +48,9 @@ final class SettingsStore: ObservableObject {
         availableLanguages: [AppLanguage]
     ) -> AppSettings {
         var result = settings
+        if !availableLanguages.contains(result.defaultLanguage) {
+            result.defaultLanguage = .englishUS
+        }
         if !LocalConversationLanguagePolicy.supports(
             result.pair,
             availableLanguages: availableLanguages
@@ -64,4 +67,15 @@ final class SettingsStore: ObservableObject {
     }
 
     private func save() { if let data = try? JSONEncoder().encode(value) { defaults.set(data, forKey: key) } }
+
+    func useDefaultLanguage() {
+        let language = value.defaultLanguage
+        let partner = [value.pair.local] + availableLanguages
+        guard let partner = partner.first(where: {
+            LocalConversationLanguagePolicy.supports(
+                LanguagePair(traveler: language, local: $0), availableLanguages: availableLanguages
+            )
+        }) else { return }
+        value.pair = LanguagePair(traveler: language, local: partner)
+    }
 }
