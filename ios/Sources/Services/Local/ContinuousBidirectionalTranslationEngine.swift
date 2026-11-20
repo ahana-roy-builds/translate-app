@@ -23,6 +23,7 @@ final class ContinuousBidirectionalTranslationEngine: ContinuousBidirectionalTra
                 source: pair.local.language,
                 target: pair.traveler.language
             )
+            try Task.checkCancellation()
         } catch {
             travelerToLocal.cancel()
             localToTraveler.cancel()

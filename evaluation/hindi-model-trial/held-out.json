@@ -1,0 +1,44 @@
+[
+  {
+    "file": "heldout-1.wav",
+    "hindi": "क्या आप मुझे जयपुर का रास्ता बता सकते हैं?",
+    "english": "Can you tell me the way to Jaipur?",
+    "rate": 158,
+    "sha256": "0d336cc8d3d2661512af93aa69ca9d3fa98fb1bf64edafaa22410ab638525786"
+  },
+  {
+    "file": "heldout-2.wav",
+    "hindi": "इस दवाई की कीमत पचास रुपये है।",
+    "english": "This medicine costs fifty rupees.",
+    "rate": 184,
+    "sha256": "ec99cb465a0bcfc223b223c05712f6be2c5beaf05385f53fa5b98011a2295741"
+  },
+  {
+    "file": "heldout-3.wav",
+    "hindi": "बस सात बजे आएगी, आठ बजे नहीं।",
+    "english": "The bus will arrive at seven, not eight.",
+    "rate": 172,
+    "sha256": "fa78ecec814b793a3372063ca25f685d2ea8c9beb9f0fcb5f0f55eda320cdc44"
+  },
+  {
+    "file": "heldout-4.wav",
+    "hindi": "हाँ, बिल्कुल।",
+    "english": "Yes, absolutely.",
+    "rate": 150,
+    "sha256": "84db1edb0fd6d5b227385de2edaf46c5b712ce4368fb00827f34cbac70e0f108"
+  },
+  {
+    "file": "heldout-5.wav",
+    "hindi": "मेरी meeting आज तीन बजे है।",
+    "english": "My meeting is at three today.",
+    "rate": 168,
+    "sha256": "62bc5abd091fc86ee0054f6e590e25b97439715a1b5551b2bde3b7af6127b18c"
+  },
+  {
+    "file": "heldout-6.wav",
+    "hindi": "Please मेरा ticket cancel कर दीजिए।",
+    "english": "Please cancel my ticket.",
+    "rate": 185,
+    "sha256": "6ae3f49c57db33c6b8d143004ecfc412a2d88135e16c7be443c49c42ce27c634"
+  }
+]

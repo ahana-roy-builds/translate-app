@@ -8,7 +8,7 @@ final class SpeechAnalyzerInputConverterTests: XCTestCase {
     @MainActor
     func testSameFormatProducesAnalyzerInputWithoutResampling() throws {
         let format = try XCTUnwrap(AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
+            commonFormat: .pcmFormatInt16,
             sampleRate: 16_000,
             channels: 1,
             interleaved: false
@@ -44,7 +44,7 @@ final class SpeechAnalyzerInputConverterTests: XCTestCase {
             interleaved: false
         ))
         let analyzerFormat = try XCTUnwrap(AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
+            commonFormat: .pcmFormatInt16,
             sampleRate: 16_000,
             channels: 1,
             interleaved: false
@@ -78,7 +78,7 @@ final class SpeechAnalyzerInputConverterTests: XCTestCase {
     @MainActor
     func testRejectsSourceFormatChangeWithinTurn() throws {
         let analyzerFormat = try XCTUnwrap(AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
+            commonFormat: .pcmFormatInt16,
             sampleRate: 16_000,
             channels: 1,
             interleaved: false
@@ -111,7 +111,7 @@ final class SpeechAnalyzerInputConverterTests: XCTestCase {
             interleaved: false
         ))
         let analyzerFormat = try XCTUnwrap(AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
+            commonFormat: .pcmFormatInt16,
             sampleRate: 16_000,
             channels: 1,
             interleaved: false
@@ -144,9 +144,10 @@ final class SpeechAnalyzerInputConverterTests: XCTestCase {
     private func makeBuffer(format: AVAudioFormat, frames: AVAudioFrameCount) throws -> AVAudioPCMBuffer {
         let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames))
         buffer.frameLength = frames
-        guard let samples = buffer.floatChannelData?.pointee else { return buffer }
-        for index in 0..<Int(frames) {
-            samples[index] = sin(Float(index) * 0.05)
+        if let samples = buffer.floatChannelData?.pointee {
+            for index in 0..<Int(frames) { samples[index] = sin(Float(index) * 0.05) }
+        } else if let samples = buffer.int16ChannelData?.pointee {
+            for index in 0..<Int(frames) { samples[index] = Int16(16000 * sin(Float(index) * 0.05)) }
         }
         return buffer
     }

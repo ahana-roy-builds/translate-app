@@ -10,7 +10,7 @@ enum CaptureBufferDisposition: Sendable {
 
 @MainActor
 protocol MicrophoneCapturing: AnyObject {
-    var onCaptureInterrupted: (() -> Void)? { get set }
+    var onCaptureInterrupted: ((CaptureLifecycleEvent) -> Void)? { get set }
     var onCaptureLimitReached: (() -> Void)? { get set }
     var onCaptureFailed: ((String) -> Void)? { get set }
     var isActive: Bool { get }
@@ -27,7 +27,7 @@ protocol MicrophoneCapturing: AnyObject {
 
 @MainActor
 final class MicrophoneCaptureSession: MicrophoneCapturing {
-    var onCaptureInterrupted: (() -> Void)?
+    var onCaptureInterrupted: ((CaptureLifecycleEvent) -> Void)?
     var onCaptureLimitReached: (() -> Void)?
     var onCaptureFailed: ((String) -> Void)?
 
@@ -35,41 +35,42 @@ final class MicrophoneCaptureSession: MicrophoneCapturing {
     private var tapInstalled = false
     private var activeTapBridge: AudioTapBridge?
     private var deliveryTask: Task<Void, Never>?
-    private var captureGeneration: UUID?
-    private let lifecycleState = CaptureLifecycleState()
     private let notificationCenter: NotificationCenter
     private let logger = Logger(
         subsystem: Bundle.main.bundleIdentifier ?? "LocalLingo",
         category: "AudioCapture"
     )
     // NotificationCenter's opaque tokens are not Sendable, but deinit can run
-    // outside MainActor isolation. Only initialization and deinit touch them.
+    // outside MainActor isolation. Capture start and teardown own the registrations.
     private nonisolated(unsafe) var notificationTokens: [NSObjectProtocol] = []
 
     init(notificationCenter: NotificationCenter = .default) {
         self.notificationCenter = notificationCenter
-        let state = lifecycleState
+    }
+
+    private func observeLifecycle(for bridge: AudioTapBridge, route: CaptureAudioRoute) {
         let names: [Notification.Name] = [
             AVAudioSession.interruptionNotification,
             AVAudioSession.routeChangeNotification,
             UIApplication.didEnterBackgroundNotification
         ]
         notificationTokens = names.map { name in
-            notificationCenter.addObserver(forName: name, object: nil, queue: nil) { [weak self] notification in
+            notificationCenter.addObserver(forName: name, object: nil, queue: nil) { [weak self, weak bridge] notification in
                 let event: CaptureLifecycleEvent
                 if name == AVAudioSession.routeChangeNotification {
                     let raw = (notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? NSNumber)?.uintValue
                     let reason = raw.flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
-                    if !CaptureLifecyclePolicy.shouldInterrupt(routeChangeReason: reason) { return }
-                    event = .routeChange(reason?.rawValue)
+                    event = .routeChange(reason)
                 } else if name == AVAudioSession.interruptionNotification {
+                    let type = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? NSNumber
+                    if type?.uintValue == AVAudioSession.InterruptionType.ended.rawValue { return }
                     event = .interruption
                 } else {
                     event = .background
                 }
-                guard let generation = state.activeGeneration else { return }
-                Task { @MainActor [weak self] in
-                    self?.handleLifecycleEvent(event, generation: generation)
+                Task { @MainActor [weak self, weak bridge] in
+                    guard let bridge else { return }
+                    self?.handleLifecycleEvent(event, bridge: bridge, initialRoute: route)
                 }
             }
         }
@@ -80,7 +81,7 @@ final class MicrophoneCaptureSession: MicrophoneCapturing {
     }
 
     var isActive: Bool {
-        captureGeneration != nil && (tapInstalled || engine.isRunning)
+        activeTapBridge != nil && (tapInstalled || engine.isRunning)
     }
 
     func requestPermission() async -> Bool {
@@ -92,17 +93,15 @@ final class MicrophoneCaptureSession: MicrophoneCapturing {
         generation: UUID = UUID(),
         onBuffer: @escaping @MainActor (CapturedAudioBuffer) async throws -> CaptureBufferDisposition
     ) throws -> UUID {
-        guard !engine.isRunning, !tapInstalled, captureGeneration == nil else {
+        guard !engine.isRunning, !tapInstalled, activeTapBridge == nil else {
             throw PipelineError.server("Audio capture is already active.")
         }
 
         let bridge = AudioTapBridge(id: generation)
-        captureGeneration = generation
         activeTapBridge = bridge
         deliveryTask = Task { @MainActor [weak self] in
             await self?.deliverBuffers(
                 from: bridge,
-                generation: generation,
                 onBuffer: onBuffer
             )
         }
@@ -114,7 +113,7 @@ final class MicrophoneCaptureSession: MicrophoneCapturing {
                 mode: .voiceChat,
                 options: [.defaultToSpeaker, .allowBluetoothHFP]
             )
-            try session.setActive(true, options: .notifyOthersOnDeactivation)
+            try session.setActive(true)
             guard session.isInputAvailable else {
                 throw PipelineError.server(
                     "The microphone is not currently available. Check the active audio input and try again."
@@ -143,47 +142,38 @@ final class MicrophoneCaptureSession: MicrophoneCapturing {
             input.installTap(onBus: 0, bufferSize: 1_024, format: format, block: tap)
             tapInstalled = true
             engine.prepare()
-            lifecycleState.activate(generation)
+            observeLifecycle(for: bridge, route: CaptureAudioRoute(session))
             try engine.start()
             return generation
         } catch {
             bridge.close(.finished)
-            lifecycleState.deactivate()
             cleanupEngine()
             deliveryTask?.cancel()
             deliveryTask = nil
-            if activeTapBridge?.id == bridge.id { activeTapBridge = nil }
-            if captureGeneration == generation { captureGeneration = nil }
+            activeTapBridge = nil
             throw error
         }
     }
 
     func stop() async throws {
-        guard let generation = captureGeneration,
-              tapInstalled || engine.isRunning || activeTapBridge != nil else {
-            throw PipelineError.noSpeech
-        }
-        let bridge = activeTapBridge
+        guard let bridge = activeTapBridge else { throw PipelineError.noSpeech }
         let task = deliveryTask
-        lifecycleState.deactivate()
-        bridge?.close(.finished)
+        bridge.close(.finished)
         cleanupEngine()
-        await bridge?.waitUntilIdle()
+        await bridge.waitUntilIdle()
         await task?.value
         try Task.checkCancellation()
-        guard captureGeneration == generation else { throw CancellationError() }
+        guard activeTapBridge === bridge else { throw CancellationError() }
 
         deliveryTask = nil
-        if activeTapBridge?.id == bridge?.id { activeTapBridge = nil }
-        captureGeneration = nil
-        if case let .failed(message) = bridge?.termination?.action ?? .none {
+        activeTapBridge = nil
+        if case let .failed(message) = bridge.termination?.action ?? .none {
             throw PipelineError.server(message)
         }
     }
 
     func cancel() {
-        captureGeneration = nil
-        lifecycleState.deactivate()
+        guard activeTapBridge != nil else { return }
         activeTapBridge?.close(.finished)
         cleanupEngine()
         deliveryTask?.cancel()
@@ -192,6 +182,8 @@ final class MicrophoneCaptureSession: MicrophoneCapturing {
     }
 
     private func cleanupEngine() {
+        notificationTokens.forEach { notificationCenter.removeObserver($0) }
+        notificationTokens.removeAll()
         if tapInstalled {
             engine.inputNode.removeTap(onBus: 0)
             tapInstalled = false
@@ -205,14 +197,12 @@ final class MicrophoneCaptureSession: MicrophoneCapturing {
 
     private func deliverBuffers(
         from bridge: AudioTapBridge,
-        generation: UUID,
         onBuffer: @escaping @MainActor (CapturedAudioBuffer) async throws -> CaptureBufferDisposition
     ) async {
         do {
             captureLoop: for await captured in bridge.stream {
                 try Task.checkCancellation()
-                guard captureGeneration == generation,
-                      activeTapBridge?.id == bridge.id else { return }
+                guard activeTapBridge === bridge else { return }
                 if bridge.termination?.abortsDelivery == true { break }
                 switch try await onBuffer(captured) {
                 case .continueCapture:
@@ -226,8 +216,7 @@ final class MicrophoneCaptureSession: MicrophoneCapturing {
             bridge.close(.finished)
             return
         } catch {
-            guard captureGeneration == generation,
-                  activeTapBridge?.id == bridge.id else {
+            guard activeTapBridge === bridge else {
                 bridge.close(.finished)
                 return
             }
@@ -236,15 +225,12 @@ final class MicrophoneCaptureSession: MicrophoneCapturing {
             bridge.close(.consumerFailed(message))
         }
 
-        guard captureGeneration == generation,
-              activeTapBridge?.id == bridge.id else { return }
+        guard activeTapBridge === bridge else { return }
         let action = bridge.termination?.action ?? .none
         guard action != .none else { return }
         Task { @MainActor [weak self] in
             guard let self,
-                  self.captureGeneration == generation,
-                  self.activeTapBridge?.id == bridge.id,
-                  self.lifecycleState.activeGeneration == generation else { return }
+                  self.activeTapBridge === bridge, self.tapInstalled else { return }
             switch action {
             case .limitReached:
                 self.onCaptureLimitReached?()
@@ -256,27 +242,58 @@ final class MicrophoneCaptureSession: MicrophoneCapturing {
         }
     }
 
-    private func handleLifecycleEvent(_: CaptureLifecycleEvent, generation: UUID) {
-        guard lifecycleState.activeGeneration == generation,
-              captureGeneration == generation,
-              tapInstalled || engine.isRunning else { return }
-        lifecycleState.deactivate()
+    private func handleLifecycleEvent(_ event: CaptureLifecycleEvent, bridge: AudioTapBridge, initialRoute: CaptureAudioRoute) {
+        // Talk reuses its conversation ID across playback. A queued callback
+        // belongs to the tap that observed it, even if capture has since reopened.
+        guard activeTapBridge === bridge, tapInstalled else { return }
+        if case let .routeChange(reason) = event {
+            let current = CaptureAudioRoute(AVAudioSession.sharedInstance())
+            let usable = current.canContinue(from: initialRoute, reason: reason, engineRunning: engine.isRunning)
+            logger.info("Microphone route notification: reason=\(reason?.rawValue.description ?? "unknown", privacy: .public), continuing=\(usable, privacy: .public)")
+            guard !usable else { return }
+        }
+        logger.info("Microphone stopped: \(event.message, privacy: .public)")
         cancel()
-        onCaptureInterrupted?()
+        onCaptureInterrupted?(event)
     }
 }
 
-private enum CaptureLifecycleEvent: Sendable {
+enum CaptureLifecycleEvent: Sendable {
     case interruption
-    case routeChange(UInt?)
+    case routeChange(AVAudioSession.RouteChangeReason?)
     case background
+
+    var message: String {
+        switch self {
+        case .interruption: "iOS interrupted the microphone. Tap retry to continue."
+        case .routeChange: "The microphone’s audio route changed. Check the input and tap retry."
+        case .background: "Listening paused when Speak Duet went into the background."
+        }
+    }
 }
 
-enum CaptureLifecyclePolicy {
-    static func shouldInterrupt(
-        routeChangeReason: AVAudioSession.RouteChangeReason?
-    ) -> Bool {
-        routeChangeReason != .categoryChange
+struct CaptureAudioRoute {
+    let inputs: Set<String>
+    let outputs: Set<String>
+    let sampleRate: Double
+    let channels: Int
+
+    func canContinue(from initial: Self, reason: AVAudioSession.RouteChangeReason?, engineRunning: Bool) -> Bool {
+        guard engineRunning, !inputs.isEmpty, inputs == initial.inputs,
+              sampleRate > 0, sampleRate == initial.sampleRate,
+              channels > 0, channels == initial.channels else { return false }
+        // Unplugging the active headset can change where private audio plays.
+        // A late notification with the same route describes no such removal.
+        return reason != .noSuitableRouteForCategory
+            && (reason != .oldDeviceUnavailable || initial.outputs.isSubset(of: outputs))
+    }
+}
+
+private extension CaptureAudioRoute {
+    init(_ session: AVAudioSession) {
+        let route = session.currentRoute
+        self.init(inputs: Set(route.inputs.map(\.uid)), outputs: Set(route.outputs.map(\.uid)),
+                  sampleRate: session.sampleRate, channels: session.inputNumberOfChannels)
     }
 }
 
@@ -290,28 +307,5 @@ enum AudioInputFormatPolicy {
             && sampleRate.isFinite
             && sampleRate > 0
             && channelCount > 0
-    }
-}
-
-final class CaptureLifecycleState: @unchecked Sendable {
-    private let lock = NSLock()
-    private var generation: UUID?
-
-    var activeGeneration: UUID? {
-        lock.lock()
-        defer { lock.unlock() }
-        return generation
-    }
-
-    func activate(_ value: UUID) {
-        lock.lock()
-        generation = value
-        lock.unlock()
-    }
-
-    func deactivate() {
-        lock.lock()
-        generation = nil
-        lock.unlock()
     }
 }

@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreMedia
 import Foundation
+import NaturalLanguage
 import Speech
 
 enum LanguageReviewReason: String, CaseIterable, Equatable, Hashable, Sendable {
@@ -10,6 +11,8 @@ enum LanguageReviewReason: String, CaseIterable, Equatable, Hashable, Sendable {
     case languageDisagreement
     case missingAlternate
     case experimentalLanguagePair
+    case conflictingSpeakerEvidence
+    case competingFinals
 }
 
 struct RecognitionCandidate: Equatable, Sendable {
@@ -28,6 +31,9 @@ struct LanguageDecision: Equatable, Sendable {
     let reviewReasons: Set<LanguageReviewReason>
 
     var needsReview: Bool { !reviewReasons.isEmpty }
+    var requiresSpeakerChoice: Bool {
+        reviewReasons.contains(.conflictingSpeakerEvidence) || reviewReasons.contains(.competingFinals)
+    }
 }
 
 struct ContinuousDraft: Equatable, Sendable {
@@ -108,7 +114,7 @@ struct ContinuousRecognitionSegment {
     let lowConfidenceFraction: Double
     let timedText: AttributedString?
 
-    /// A word belongs to the turn in which it ends. Preserve spaces and
+    /// Use the midpoint so a word crossing adjacent intervals belongs to exactly one. Preserve spaces and
     /// punctuation between timed runs, which Apple can return without timing.
     func clipped(to interval: CMTimeRange) -> Self? {
         guard let timedText else { return self }
@@ -118,8 +124,9 @@ struct ContinuousRecognitionSegment {
         if start == range.start && end == range.end { return self }
 
         let included = timedText.runs.compactMap { run -> Range<AttributedString.Index>? in
-            guard let time = run[AttributeScopes.SpeechAttributes.TimeRangeAttribute.self],
-                  time.end > start, time.end <= end else { return nil }
+            guard let time = run[AttributeScopes.SpeechAttributes.TimeRangeAttribute.self] else { return nil }
+            let midpoint = time.start + CMTimeMultiplyByRatio(time.duration, multiplier: 1, divisor: 2)
+            guard midpoint >= start, midpoint < end else { return nil }
             return run.range
         }
         guard let first = included.first, let last = included.last else { return nil }
@@ -265,26 +272,18 @@ enum ContinuousLanguageDecisionPolicy {
         candidates: [RecognitionCandidate],
         pair: LanguagePair? = nil
     ) -> LanguageDecision? {
-        let eligible = candidates.filter {
-            !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let isEnglishHindi = pair?.isEnglishHindi == true
+        let eligible = candidates.filter { candidate in
+            candidate.text.contains { $0.isLetter || $0.isNumber }
         }
-        let preferredLanguage: AppLanguage? = if let pair,
-            Set([pair.traveler, pair.local]) == Set([.englishUS, .hindiIndia]) {
-            eligible.contains {
-                $0.language == .hindiIndia
-                    && PairLanguageEvidencePolicy.hasStrongHindiScriptEvidence($0.text)
-            } ? .hindiIndia : .englishUS
-        } else {
-            nil
-        }
+        let preferredLanguage = isEnglishHindi ? PairLanguageEvidencePolicy.preferredLanguage(in: eligible) : nil
         let ranked = eligible.sorted {
-                if let preferredLanguage, $0.language != $1.language {
-                    if $0.language == preferredLanguage { return true }
-                    if $1.language == preferredLanguage { return false }
-                }
-                if abs($0.score - $1.score) > .ulpOfOne { return $0.score > $1.score }
-                return $0.language.rawValue < $1.language.rawValue
+            if let preferredLanguage, $0.language != $1.language {
+                return $0.language == preferredLanguage
             }
+            if abs($0.score - $1.score) > .ulpOfOne { return $0.score > $1.score }
+            return $0.language.rawValue < $1.language.rawValue
+        }
         guard let selected = ranked.first else { return nil }
         let alternate = ranked.dropFirst().first
         var reasons = Set<LanguageReviewReason>()
@@ -297,6 +296,17 @@ enum ContinuousLanguageDecisionPolicy {
         }
         if let alternate, selected.score - alternate.score < minimumWinnerMargin {
             reasons.insert(.closeScores)
+            // Both recognizers can turn the same sounds into plausible but different
+            // sentences in their own languages. Re-decoding just one side would
+            // discard that competing evidence.
+            if pair != nil, !isEnglishHindi, selected.language != alternate.language,
+               [selected, alternate].allSatisfy({ candidate in
+                   candidate.isFinal && candidate.score >= minimumScore
+                       && (candidate.constrainedLanguageProbability ?? 0) >= 0.8
+                       && candidate.text.filter(\.isLetter).count >= minimumAlphabeticCharacters
+               }) {
+                reasons.insert(.competingFinals)
+            }
         }
         if alternate == nil {
             reasons.insert(.missingAlternate)
@@ -305,8 +315,10 @@ enum ContinuousLanguageDecisionPolicy {
            probability < strongDisagreementProbability {
             reasons.insert(.languageDisagreement)
         }
-        if let pair,
-           Set([pair.traveler, pair.local]) == Set([.englishUS, .hindiIndia]) {
+        if let pair, !isEnglishHindi, contradictsSpokenLanguage(selected, in: pair) {
+            reasons.insert(.conflictingSpeakerEvidence)
+        }
+        if isEnglishHindi {
             // SpeechTranscriber and DictationTranscriber confidence values are
             // not calibrated against each other. Keep every beta decision
             // reviewable until physical-corpus evidence establishes a safe
@@ -316,6 +328,18 @@ enum ContinuousLanguageDecisionPolicy {
         return LanguageDecision(selected: selected, alternate: alternate, reviewReasons: reasons)
     }
 
+    /// A recognizer can output fluent words in the other participant's language.
+    /// A named place, a price or a short acknowledgement alone is weak evidence.
+    private static func contradictsSpokenLanguage(_ candidate: RecognitionCandidate, in pair: LanguagePair) -> Bool {
+        guard candidate.text.filter(\.isLetter).count >= 8 else { return false }
+        let other = candidate.language == pair.traveler ? pair.local : pair.traveler
+        guard let code = other.locale.language.languageCode?.identifier else { return false }
+        let identifier = NLLanguageRecognizer()
+        identifier.processString(candidate.text)
+        let probability = identifier.languageHypotheses(withMaximum: 2)[NLLanguage(rawValue: code)] ?? 0
+        return probability >= 0.8 && (candidate.constrainedLanguageProbability ?? 0.5) < 0.35
+    }
+
     static func clamp(_ value: Double) -> Double {
         guard value.isFinite else { return 0 }
         return min(max(value, 0), 1)
@@ -323,14 +347,33 @@ enum ContinuousLanguageDecisionPolicy {
 }
 
 enum PairLanguageEvidencePolicy {
+    static func preferredLanguage(in candidates: [RecognitionCandidate]) -> AppLanguage? {
+        guard let english = candidates.first(where: { $0.language == .englishUS }),
+              let hindi = candidates.first(where: { $0.language == .hindiIndia }) else { return nil }
+        guard hasStrongHindiScriptEvidence(hindi.text) else { return .englishUS }
+
+        // Both recognizers can spell the other language phonetically. Restricting
+        // text identification to English and Hindi makes Romanized Hindi score
+        // almost 1.0 for English. Check English independently of that prior.
+        let englishTranscript = Transcript(text: english.text, isFinal: english.isFinal, confidence: english.confidence,
+                                           lowConfidenceFraction: english.lowConfidenceFraction)
+        if !englishTranscript.isUncertain {
+            let detector = NLLanguageRecognizer()
+            detector.processString(english.text)
+            if let probability = detector.languageHypotheses(withMaximum: 1)[.english], probability >= 0.5 {
+                return .englishUS
+            }
+        }
+        return .hindiIndia
+    }
+
     static func constrainedProbability(
         base: Double?,
         text: String,
         expected: AppLanguage,
         pair: LanguagePair
     ) -> Double? {
-        let languages = Set([pair.traveler, pair.local])
-        guard languages == Set([.englishUS, .hindiIndia]) else { return base }
+        guard pair.isEnglishHindi else { return base }
 
         guard hasStrongHindiScriptEvidence(text) else { return base }
         let value = ContinuousLanguageDecisionPolicy.clamp(base ?? 0.5)
@@ -353,10 +396,12 @@ struct ContinuousDraftSelector {
 
     mutating func select(
         candidates: [RecognitionCandidate],
+        preferredLanguage: AppLanguage? = nil,
         requiredLead: Double = ContinuousLanguageDecisionPolicy.minimumWinnerMargin,
         consecutiveUpdates: Int = 2
     ) -> RecognitionCandidate? {
         let ranked = candidates.sorted {
+            if let preferredLanguage, $0.language != $1.language { return $0.language == preferredLanguage }
             if abs($0.score - $1.score) > .ulpOfOne { return $0.score > $1.score }
             return $0.language.rawValue < $1.language.rawValue
         }
@@ -374,7 +419,7 @@ struct ContinuousDraftSelector {
             clearPendingSwitch()
             return selected
         }
-        guard leader.score - selected.score >= max(requiredLead, 0) else {
+        guard leader.language == preferredLanguage || leader.score - selected.score >= max(requiredLead, 0) else {
             clearPendingSwitch()
             return selected
         }

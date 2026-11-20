@@ -99,6 +99,9 @@ targets:
     platform: iOS
     sources:
       - path: Tests
+      - path: ../evaluation/fixtures/continuous-speech
+        type: folder
+        buildPhase: resources
       - path: Config/LocalLingo.storekit
         buildPhase: resources
     dependencies:

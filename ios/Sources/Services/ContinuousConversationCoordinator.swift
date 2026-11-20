@@ -24,7 +24,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
 
     private enum WorkItem {
         case utterance(PendingUtterance)
-        case languageCorrection(UUID)
+        case languageCorrection(UUID, AlternateTranscript)
     }
 
     private enum ReviewedPlaybackOrigin {
@@ -95,8 +95,12 @@ final class ContinuousConversationCoordinator: ObservableObject {
         self.history = history
         self.access = access
 
-        capture.onCaptureInterrupted = { [weak self] in
-            self?.captureInterrupted()
+        capture.onCaptureInterrupted = { [weak self] event in
+            if case .background = event {
+                self?.handleSceneActivity(isActive: false)
+            } else {
+                self?.captureFailed(event.message)
+            }
         }
         capture.onCaptureLimitReached = { [weak self] in
             self?.captureFailed(
@@ -116,6 +120,10 @@ final class ContinuousConversationCoordinator: ObservableObject {
         ContinuousModePolicy.canCorrectLanguage(in: state)
             && reviewedPlaybackTask == nil
             && !isEnding
+    }
+
+    var canResolveSpeaker: Bool {
+        canRequestLanguageCorrection || (isSceneActive && reviewedPlaybackTask == nil && (state == .interrupted || state == .ended))
     }
 
     var statusText: String {
@@ -404,6 +412,10 @@ final class ContinuousConversationCoordinator: ObservableObject {
     func handleSceneActivity(isActive: Bool) {
         guard isSceneActive != isActive else { return }
         isSceneActive = isActive
+        if !isActive, !state.isRunning, workerTask != nil {
+            stopImmediately(finalState: state, clearConversation: false)
+            return
+        }
         if !isActive,
            reviewedPlaybackTask != nil,
            !state.isRunning {
@@ -418,26 +430,41 @@ final class ContinuousConversationCoordinator: ObservableObject {
     }
 
     func swapLanguage(for turnID: UUID) {
-        guard canRequestLanguageCorrection,
-              let turn = turns.first(where: { $0.id == turnID }),
+        guard let turn = turns.first(where: { $0.id == turnID }),
+              let alternate = turn.alternateTranscript else { return }
+        enqueueCorrection(for: turn, using: alternate)
+    }
+
+    @discardableResult
+    func confirmSpeaker(for turnID: UUID, language: AppLanguage, text: String) -> Bool {
+        guard let turn = turns.first(where: { $0.id == turnID }),
+              turn.warnings.contains(.unresolvedSpeaker),
+              language.code == turn.sourceLocale || language.code == turn.targetLocale,
+              let verified = try? TurnTextPolicy.validated(text),
+              verified.contains(where: { $0.isLetter || $0.isNumber }) else { return false }
+        return enqueueCorrection(for: turn, using: AlternateTranscript(locale: language.code, text: verified, recognitionConfidence: nil))
+    }
+
+    @discardableResult
+    private func enqueueCorrection(for turn: ConversationTurn, using transcript: AlternateTranscript) -> Bool {
+        let turnID = turn.id
+        guard (turn.warnings.contains(.unresolvedSpeaker) ? canResolveSpeaker : canRequestLanguageCorrection),
               turn.languageReviewStatus == .needsReview,
-              turn.alternateTranscript != nil,
               activeCorrectionTurnID != turnID,
               !workQueue.contains(where: {
-                  guard case let .languageCorrection(queuedID) = $0 else {
-                      return false
-                  }
-                  return queuedID == turnID
-              }) else { return }
+                  if case let .languageCorrection(queuedID, _) = $0 { return queuedID == turnID }
+                  return false
+              }) else { return false }
         guard ContinuousModePolicy.canEnqueueWork(
             pendingTurns: pendingWorkCount
         ) else {
             errorMessage = "Wait for the pending turns to finish before correcting the language."
-            return
+            return false
         }
-        workQueue.append(.languageCorrection(turnID))
+        workQueue.append(.languageCorrection(turnID, transcript))
         startWorkerIfNeeded(generation: sessionGeneration)
         publishOperationalState()
+        return true
     }
 
     private func makeReviewedPlaybackRequest(
@@ -459,6 +486,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
         guard ContinuousModePolicy.supports(pair),
               turn.route == .local,
               !turn.warnings.contains(.entityMismatch),
+              !turn.warnings.contains(.unresolvedSpeaker),
               let sourceLanguage = AppLanguage.allCases.first(where: {
                   $0.code == turn.sourceLocale
               }),
@@ -729,7 +757,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
               !workQueue.isEmpty {
             let item = workQueue.removeFirst()
             isProcessingWork = true
-            if case let .languageCorrection(turnID) = item {
+            if case let .languageCorrection(turnID, _) = item {
                 activeCorrectionTurnID = turnID
             } else {
                 activeCorrectionTurnID = nil
@@ -747,9 +775,9 @@ final class ContinuousConversationCoordinator: ObservableObject {
                 switch item {
                 case let .utterance(pending):
                     try await processUtterance(pending, generation: generation)
-                case let .languageCorrection(turnID):
+                case let .languageCorrection(turnID, transcript):
                     try await processLanguageCorrection(
-                        turnID: turnID,
+                        turnID: turnID, transcript: transcript,
                         generation: generation
                     )
                 }
@@ -824,6 +852,16 @@ final class ContinuousConversationCoordinator: ObservableObject {
         pendingDrafts[pending.sequence] = ContinuousDraft(
             language: selected.language, text: sourceText, confidence: selected.confidence, score: selected.score
         )
+        let alternate = makeAlternateTranscript(from: decision.alternate, expectedLanguage: pair.target(for: speaker))
+        if decision.requiresSpeakerChoice {
+            commit(ConversationTurn(id: UUID(), sequence: pending.sequence, speaker: speaker,
+                sourceLocale: selected.language.code, targetLocale: pair.target(for: speaker).code,
+                sourceText: sourceText, translatedText: "", userEdited: false, createdAt: pending.createdAt,
+                entities: [], route: .local, recognitionConfidence: selected.confidence,
+                warnings: [.unresolvedSpeaker, .uncertainRecognition], languageReviewStatus: .needsReview,
+                alternateTranscript: alternate))
+            return
+        }
         let translatedText = try await translation.translate(
             sourceText,
             speaker: speaker,
@@ -846,10 +884,6 @@ final class ContinuousConversationCoordinator: ObservableObject {
         if decision.needsReview { warnings.insert(.uncertainRecognition) }
         if integrity.hasMismatch { warnings.insert(.entityMismatch) }
 
-        let alternate = makeAlternateTranscript(
-            from: decision.alternate,
-            expectedLanguage: pair.target(for: speaker)
-        )
         let turn = ConversationTurn(
             id: UUID(),
             sequence: pending.sequence,
@@ -877,7 +911,8 @@ final class ContinuousConversationCoordinator: ObservableObject {
             isEnabledNow: speakTranslations,
             pair: pair,
             requiresLanguageReview: decision.needsReview,
-            requiresEntityReview: integrity.requiresConfirmation
+            requiresEntityReview: integrity.requiresConfirmation,
+            hasEntityMismatch: integrity.hasMismatch
         ), !isEnding else {
             return
         }
@@ -901,21 +936,29 @@ final class ContinuousConversationCoordinator: ObservableObject {
     }
 
     private func processLanguageCorrection(
-        turnID: UUID,
+        turnID: UUID, transcript: AlternateTranscript,
         generation: UUID
     ) async throws {
         guard let index = turns.firstIndex(where: { $0.id == turnID }),
-              turns[index].languageReviewStatus == .needsReview,
-              let alternate = turns[index].alternateTranscript else { return }
+              turns[index].languageReviewStatus == .needsReview else { return }
         let prior = turns[index]
-        guard alternate.locale == prior.targetLocale else {
+        let alternate = transcript
+        guard alternate.locale == prior.targetLocale || alternate.locale == prior.sourceLocale else {
             throw PipelineError.malformedResponse
         }
-        let correctedSpeaker = prior.speaker.other
+        let correctedSpeaker = alternate.locale == prior.sourceLocale ? prior.speaker : prior.speaker.other
         let sourceText = try TurnTextPolicy.validatedFinal(
             alternate.text,
             field: "source"
         )
+        let reviewingStoppedTurn = !state.isRunning
+        defer {
+            if reviewingStoppedTurn && sessionGeneration == generation { translation.cancel() }
+        }
+        if reviewingStoppedTurn {
+            try await translation.prepare(pair: pair, strategy: settings.value.continuousTranslationStrategy)
+            try validate(generation)
+        }
         let translatedText = try await translation.translate(
             sourceText,
             speaker: correctedSpeaker,
@@ -935,6 +978,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
             timeZone: .current
         )
         var warnings = prior.warnings
+        warnings.remove(.unresolvedSpeaker)
         warnings.remove(.uncertainRecognition)
         warnings.remove(.entityMismatch)
         if integrity.hasMismatch { warnings.insert(.entityMismatch) }
@@ -943,18 +987,18 @@ final class ContinuousConversationCoordinator: ObservableObject {
             id: prior.id,
             sequence: prior.sequence,
             speaker: correctedSpeaker,
-            sourceLocale: prior.targetLocale,
-            targetLocale: prior.sourceLocale,
+            sourceLocale: pair.source(for: correctedSpeaker).code,
+            targetLocale: pair.target(for: correctedSpeaker).code,
             sourceText: sourceText,
             translatedText: boundedTranslation,
-            userEdited: false,
+            userEdited: prior.warnings.contains(.unresolvedSpeaker) && alternate.text != prior.sourceText && alternate.text != prior.alternateTranscript?.text,
             createdAt: prior.createdAt,
             entities: integrity.source,
             route: .local,
             recognitionConfidence: alternate.recognitionConfidence,
             warnings: warnings,
             languageReviewStatus: .corrected,
-            alternateTranscript: AlternateTranscript(
+            alternateTranscript: correctedSpeaker == prior.speaker ? prior.alternateTranscript : AlternateTranscript(
                 locale: prior.sourceLocale,
                 text: prior.sourceText,
                 recognitionConfidence: prior.recognitionConfidence
@@ -968,7 +1012,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
         from candidate: RecognitionCandidate?,
         expectedLanguage: AppLanguage
     ) -> AlternateTranscript? {
-        guard let candidate,
+        guard let candidate, candidate.text.contains(where: { $0.isLetter || $0.isNumber }),
               candidate.language == expectedLanguage,
               let text = try? TurnTextPolicy.validatedFinal(
                 candidate.text,
@@ -1190,16 +1234,6 @@ final class ContinuousConversationCoordinator: ObservableObject {
 
     private func recognitionFailed(_ error: Error, generation: UUID) {
         failSession(error, generation: generation)
-    }
-
-    private func captureInterrupted() {
-        guard state.isRunning, !isEnding else { return }
-        failSession(
-            PipelineError.server(
-                "Continuous listening stopped because the audio route or app state changed."
-            ),
-            generation: sessionGeneration
-        )
     }
 
     private func captureFailed(_ message: String) {

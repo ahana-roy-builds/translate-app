@@ -96,6 +96,9 @@ struct LanguagePair: Codable, Equatable, Hashable, Sendable {
     var local: AppLanguage = .spanishSpain
 
     var isValid: Bool { traveler != local }
+    var isEnglishHindi: Bool {
+        (traveler == .englishUS && local == .hindiIndia) || (traveler == .hindiIndia && local == .englishUS)
+    }
 
     var swapped: Self {
         Self(traveler: local, local: traveler)
@@ -269,6 +272,7 @@ enum TurnTextPolicy {
 
 enum TranslationWarning: String, Codable, Hashable, Sendable {
     case uncertainRecognition
+    case unresolvedSpeaker
     case entityMismatch
     case unsupportedLanguage
     case serviceDegraded

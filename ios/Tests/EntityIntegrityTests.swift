@@ -709,3 +709,167 @@ final class EntityIntegrityTests: XCTestCase {
         XCTAssertFalse(date.hasMismatch, "\(localeIdentifier) date mismatch: \(date)", file: file, line: line)
     }
 }
+
+extension EntityIntegrityTests {
+    func testKoreanNegatedDepartureVerbRetainsTheExcludedTime() {
+        let german = Locale(identifier: "de-DE")
+        let korean = Locale(identifier: "ko-KR")
+        let source = "Der Zug fährt um 9:00 Uhr ab, nicht um zehn"
+        let equivalent = "열차는 9시에 출발하고, 10시에는 출발하지 않습니다."
+        let reversed = "열차는 10시에 출발하고, 9시에는 출발하지 않습니다."
+        XCTAssertFalse(extractor.compare(source: source, translation: equivalent,
+            sourceLocale: german, targetLocale: korean).hasMismatch)
+        XCTAssertTrue(extractor.compare(source: source, translation: reversed,
+            sourceLocale: german, targetLocale: korean).hasMismatch)
+    }
+
+    func testKoreanTicketCounterMaeMatchesJapaneseMai() {
+        let japanese = Locale(identifier: "ja-JP")
+        let korean = Locale(identifier: "ko-KR")
+        let original = "切符は2枚で30ユーロです。"
+        XCTAssertFalse(extractor.compare(source: original, translation: "티켓은 2매에 30유로입니다.",
+            sourceLocale: japanese, targetLocale: korean).hasMismatch)
+        XCTAssertTrue(extractor.compare(source: original, translation: "티켓은 3매에 30유로입니다.",
+            sourceLocale: japanese, targetLocale: korean).hasMismatch)
+    }
+
+    func testCurrencySymbolWithMissingAmountStillRequiresReview() {
+        let hindi = Locale(identifier: "hi-IN")
+        let english = Locale(identifier: "en-US")
+        let source = "धूप कि किस्मत € है"
+        let partial = extractor.compare(source: source, translation: "The luck of sunshine is €",
+                                        sourceLocale: hindi, targetLocale: english)
+        XCTAssertTrue(partial.requiresConfirmation)
+        XCTAssertFalse(partial.hasMismatch)
+        XCTAssertTrue(extractor.compare(source: source, translation: "It costs €30.",
+            sourceLocale: hindi, targetLocale: english).hasMismatch)
+    }
+
+    func testEquivalentLocalizedDecimalFaresAndChangedCents() {
+        let english = Locale(identifier: "en-US")
+        let source = "It costs €1,234.50."
+        for (locale, price) in [("de-DE", "1.234,50 €"), ("fr-FR", "1 234,50 €")] {
+            let target = Locale(identifier: locale)
+            XCTAssertFalse(
+                extractor.compare(
+                    source: source, translation: price,
+                    sourceLocale: english, targetLocale: target
+                ).hasMismatch)
+            XCTAssertTrue(
+                extractor.compare(
+                    source: source, translation: price.replacingOccurrences(of: "50", with: "15"),
+                    sourceLocale: english, targetLocale: target
+                ).hasMismatch)
+        }
+    }
+
+    func testLocalizedTimeMarkersWithWhitespaceDoNotDuplicateTheDeparture() {
+        let source = "The train leaves at 9, not 10."
+        for (locale, target) in [
+            ("de-DE", "Der Zug fährt um 9 Uhr ab, nicht um 10 Uhr."),
+            ("ko-KR", "열차는 10시가 아니라 9시에 출발합니다."),
+            ("hi-IN", "ट्रेन 9 बजे निकलती है, 10 बजे नहीं।"),
+        ] {
+            XCTAssertFalse(
+                extractor.compare(
+                    source: source, translation: target,
+                    sourceLocale: Locale(identifier: "en-US"), targetLocale: Locale(identifier: locale)
+                ).hasMismatch)
+        }
+        let spanish = Locale(identifier: "es-ES")
+        let english = Locale(identifier: "en-US")
+        let morning = "El tren sale a las 9 de la mañana, no a las 10 de la mañana."
+        XCTAssertFalse(
+            extractor.compare(
+                source: "The train leaves at 9am, not 10am.", translation: morning,
+                sourceLocale: english, targetLocale: spanish
+            ).hasMismatch)
+        XCTAssertTrue(
+            extractor.compare(
+                source: "The train leaves at 9pm, not 10am.", translation: morning,
+                sourceLocale: english, targetLocale: spanish
+            ).hasMismatch)
+    }
+
+    func testExplicitTwentyFourHourClockAndMeridiemAcrossLanguages() {
+        let french = Locale(identifier: "fr-FR")
+        let english = Locale(identifier: "en-US")
+        let early = "Le train part à 9h, pas à 10h."
+        XCTAssertFalse(extractor.compare(source: early, translation: "The train leaves at 9am, not 10am.",
+            sourceLocale: french, targetLocale: english).hasMismatch)
+        XCTAssertFalse(extractor.compare(source: early, translation: "電車は午前9時に出発しますが、午前10時ではありません。",
+            sourceLocale: french, targetLocale: Locale(identifier: "ja-JP")).hasMismatch)
+        XCTAssertFalse(extractor.compare(source: early, translation: "열차는 오전 9시에 출발하고, 오전 10시가 아닙니다.",
+            sourceLocale: french, targetLocale: Locale(identifier: "ko-KR")).hasMismatch)
+        XCTAssertTrue(extractor.compare(source: early, translation: "The train leaves at 9pm, not 10am.",
+            sourceLocale: french, targetLocale: english).hasMismatch)
+        XCTAssertFalse(extractor.compare(source: "Le train part à 21h30, pas à 22h.", translation: "The train leaves at 9:30pm, not 10pm.",
+            sourceLocale: french, targetLocale: english).hasMismatch)
+    }
+
+    func testSpelledCompoundFareAndUnrelatedNegation() {
+        let english = Locale(identifier: "en-US")
+        let spanish = Locale(identifier: "es-ES")
+        let full = "Two tickets cost one hundred thirty euros."
+        let same = "Dos billetes cuestan 130 €."
+        XCTAssertFalse(
+            extractor.compare(source: full, translation: same, sourceLocale: english, targetLocale: spanish).hasMismatch
+        )
+        XCTAssertTrue(
+            extractor.compare(
+                source: full, translation: "Dos billetes cuestan 30 €.", sourceLocale: english, targetLocale: spanish
+            ).hasMismatch)
+        XCTAssertTrue(
+            extractor.compare(
+                source: "The train leaves at twelve, not eight. Never transfer.",
+                translation: "El tren sale a las doce, no a las ocho.", sourceLocale: english, targetLocale: spanish
+            ).hasMismatch)
+        XCTAssertFalse(
+            extractor.compare(
+                source: "The train leaves not at eight but at twelve.",
+                translation: "El tren sale a las doce, no a las ocho.", sourceLocale: english, targetLocale: spanish
+            ).hasMismatch)
+        XCTAssertTrue(
+            extractor.compare(
+                source: "The train leaves at 9:45, not at 10:15.",
+                translation: "El tren sale a las 9:15, no a las 10:45.", sourceLocale: english, targetLocale: spanish
+            ).hasMismatch)
+    }
+
+    func testLocalizedFareAndDepartureClaimsInEverySupportedDirection() {
+        let wrongPrice: [AppLanguage: String] = [
+            .englishUS: "Two tickets cost forty euros.", .spanishSpain: "Dos billetes cuestan cuarenta euros.",
+            .frenchFrance: "Deux billets coûtent quarante euros.",
+            .germanGermany: "Zwei Fahrkarten kosten vierzig Euro.",
+            .italianItaly: "Due biglietti costano quaranta euro.",
+            .portugueseBrazil: "Duas passagens custam quarenta euros.", .japaneseJapan: "切符は二枚で四十ユーロです。",
+            .koreanSouthKorea: "표 두 장은 사십 유로예요.", .hindiIndia: "दो टिकटों की कीमत चालीस यूरो है।",
+        ]
+        let reversedTime: [AppLanguage: String] = [
+            .englishUS: "The train leaves at ten, not nine.", .spanishSpain: "El tren sale a las diez, no a las nueve.",
+            .frenchFrance: "Le train part à dix heures, pas à neuf heures.",
+            .germanGermany: "Der Zug fährt um zehn Uhr ab, nicht um neun.",
+            .italianItaly: "Il treno parte alle dieci, non alle nove.",
+            .portugueseBrazil: "O trem sai às dez, não às nove.", .japaneseJapan: "電車は九時ではなく十時に出発します。",
+            .koreanSouthKorea: "기차는 아홉 시가 아니라 열 시에 출발해요.", .hindiIndia: "ट्रेन दस बजे चलती है, नौ बजे नहीं।",
+        ]
+
+        for source in AppLanguage.allCases {
+            for target in AppLanguage.allCases
+            where ContinuousModePolicy.supports(.init(traveler: source, local: target)) {
+                let src = ContinuousSpeechMatrixTests.references(source)
+                let dst = ContinuousSpeechMatrixTests.references(target)
+                for (text, translated, expectedMismatch) in [
+                    (src[1], dst[1], false), (src[2], dst[2], false),
+                    (src[1], wrongPrice[target]!, true), (src[2], reversedTime[target]!, true),
+                ] {
+                    let report = extractor.compare(
+                        source: text, translation: translated, sourceLocale: source.locale, targetLocale: target.locale)
+                    XCTAssertEqual(
+                        report.hasMismatch, expectedMismatch,
+                        "\(source.code) → \(target.code) \(text) / \(translated): \(report)")
+                }
+            }
+        }
+    }
+}

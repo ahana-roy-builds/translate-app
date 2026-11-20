@@ -4,10 +4,24 @@ import XCTest
 @testable import LocalLingo
 
 final class AudioLifecycleTests: XCTestCase {
-    func testSelfInducedCategoryChangeDoesNotInterruptCapture() {
-        XCTAssertFalse(CaptureLifecyclePolicy.shouldInterrupt(routeChangeReason: .categoryChange))
-        XCTAssertTrue(CaptureLifecyclePolicy.shouldInterrupt(routeChangeReason: .oldDeviceUnavailable))
-        XCTAssertTrue(CaptureLifecyclePolicy.shouldInterrupt(routeChangeReason: nil))
+    func testPlaybackRouteNotificationsCanKeepUsingTheActiveMicrophone() {
+        let initial = CaptureAudioRoute(inputs: ["mic"], outputs: ["speaker"], sampleRate: 48_000, channels: 1)
+        let receiver = CaptureAudioRoute(inputs: ["mic"], outputs: ["receiver"], sampleRate: 48_000, channels: 1)
+        for reason: AVAudioSession.RouteChangeReason? in [.categoryChange, .override, .routeConfigurationChange, .newDeviceAvailable, nil] {
+            XCTAssertTrue(receiver.canContinue(from: initial, reason: reason, engineRunning: true))
+        }
+        XCTAssertTrue(initial.canContinue(from: initial, reason: .oldDeviceUnavailable, engineRunning: true))
+        XCTAssertFalse(receiver.canContinue(from: initial, reason: .oldDeviceUnavailable, engineRunning: true))
+        XCTAssertFalse(initial.canContinue(from: initial, reason: .noSuitableRouteForCategory, engineRunning: true))
+        XCTAssertFalse(initial.canContinue(from: initial, reason: .routeConfigurationChange, engineRunning: false))
+        for route in [
+            CaptureAudioRoute(inputs: [], outputs: ["speaker"], sampleRate: 48_000, channels: 1),
+            CaptureAudioRoute(inputs: ["headset"], outputs: ["speaker"], sampleRate: 48_000, channels: 1),
+            CaptureAudioRoute(inputs: ["mic"], outputs: ["speaker"], sampleRate: 16_000, channels: 1),
+            CaptureAudioRoute(inputs: ["mic"], outputs: ["speaker"], sampleRate: 48_000, channels: 2)
+        ] {
+            XCTAssertFalse(route.canContinue(from: initial, reason: .routeConfigurationChange, engineRunning: true))
+        }
     }
 
     func testAudioInputFormatRequiresAvailableInputAndValidDimensions() {
@@ -48,18 +62,46 @@ final class AudioLifecycleTests: XCTestCase {
         )
     }
 
-    func testGenerationSnapshotCannotTargetLaterCapture() {
-        let state = CaptureLifecycleState()
-        let first = UUID()
-        let second = UUID()
-
-        XCTAssertNil(state.activeGeneration)
-        state.activate(first)
-        XCTAssertEqual(state.activeGeneration, first)
-        state.deactivate()
-        state.activate(second)
-        XCTAssertNotEqual(state.activeGeneration, first)
-        XCTAssertEqual(state.activeGeneration, second)
+    @MainActor
+    func testDelayedNotificationsCannotStopReopenedPhysicalMicrophone() async throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["SPEAK_DUET_LIVE_MIC"] == "1",
+                          "Requires an opt-in physical microphone run.")
+        let center = NotificationCenter()
+        let microphone = MicrophoneCaptureSession(notificationCenter: center)
+        let permission = await microphone.requestPermission()
+        XCTAssertTrue(permission)
+        defer { microphone.cancel() }
+        var interruptions = 0
+        microphone.onCaptureInterrupted = { _ in interruptions += 1 }
+        let conversation = UUID()
+        func post(_ type: AVAudioSession.InterruptionType) {
+            center.post(name: AVAudioSession.interruptionNotification, object: AVAudioSession.sharedInstance(),
+                        userInfo: [AVAudioSessionInterruptionTypeKey: NSNumber(value: type.rawValue)])
+        }
+        try microphone.start(generation: conversation) { _ in .continueCapture }
+        post(.began)
+        // The queued begin belongs to the first tap. Reopen synchronously before it can be delivered.
+        microphone.cancel()
+        var buffers = 0
+        try microphone.start(generation: conversation) { _ in
+            buffers += 1
+            return .continueCapture
+        }
+        post(.ended)
+        center.post(name: AVAudioSession.routeChangeNotification, object: AVAudioSession.sharedInstance(),
+                    userInfo: [AVAudioSessionRouteChangeReasonKey: AVAudioSession.RouteChangeReason.routeConfigurationChange.rawValue])
+        let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+        while buffers < 3, ContinuousClock.now < deadline, interruptions == 0 {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        XCTAssertGreaterThanOrEqual(buffers, 3)
+        XCTAssertEqual(interruptions, 0)
+        XCTAssertTrue(microphone.isActive)
+        post(.began)
+        let stopDeadline = ContinuousClock.now.advanced(by: .seconds(1))
+        while microphone.isActive, ContinuousClock.now < stopDeadline { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(interruptions, 1)
+        XCTAssertFalse(microphone.isActive)
     }
 
     @MainActor

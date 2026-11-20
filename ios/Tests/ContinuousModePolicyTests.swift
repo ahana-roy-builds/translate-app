@@ -792,6 +792,68 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testEverySupportedPairRoutesBothSpeakersAndReplaysInTheTargetLocale() async throws {
+        let greetings: [(language: AppLanguage, locale: String, text: String)] = [
+            (.englishUS, "en-US", "Hello"), (.spanishSpain, "es-ES", "Hola"),
+            (.frenchFrance, "fr-FR", "Bonjour"), (.germanGermany, "de-DE", "Hallo"),
+            (.italianItaly, "it-IT", "Ciao"), (.portugueseBrazil, "pt-BR", "Olá"),
+            (.japaneseJapan, "ja-JP", "こんにちは"), (.koreanSouthKorea, "ko-KR", "안녕하세요"),
+            (.hindiIndia, "hi-IN", "नमस्ते"),
+        ]
+        let available = greetings.filter { AppLanguage.conversationLanguages.contains($0.language) }
+        XCTAssertEqual(Set(available.map(\.language)), Set(AppLanguage.conversationLanguages))
+        let first = CMTimeRange(start: .zero, duration: CMTime(value: 1, timescale: 1))
+        let second = CMTimeRange(start: first.end, duration: first.duration)
+
+        for primary in available {
+            for partner in available where primary.language != partner.language {
+                let languages = Set([primary.language, partner.language])
+                if languages.contains(.hindiIndia) && !languages.contains(.englishUS) { continue }
+                let pair = LanguagePair(traveler: primary.language, local: partner.language)
+                let label = "\(primary.locale) ↔ \(partner.locale)"
+                let harness = makeHarness(
+                    finishBatches: [],
+                    processBatches: [[.speechEnded(range: first, reason: .silence)],
+                                     [.speechEnded(range: second, reason: .silence)]],
+                    decisions: [Self.decision(text: primary.text, language: primary.language),
+                                Self.decision(text: partner.text, language: partner.language)],
+                    pair: pair, translations: [partner.text, primary.text]
+                )
+                defer { harness.coordinator.cancelSession() }
+                harness.coordinator.start(pair: pair)
+                await assertEventually { harness.coordinator.state == .listening }
+                for count in 1...2 {
+                    _ = try await harness.capture.emitBuffer()
+                    await assertEventually { harness.coordinator.turns.count == count }
+                }
+                let turns = harness.coordinator.turns
+                XCTAssertEqual(turns.map(\.speaker), [.traveler, .local], label)
+                XCTAssertEqual(turns.map(\.sourceLocale), [primary.locale, partner.locale], label)
+                XCTAssertEqual(turns.map(\.targetLocale), [partner.locale, primary.locale], label)
+                XCTAssertEqual(turns.map(\.sourceText), [primary.text, partner.text], label)
+                XCTAssertEqual(turns.map(\.translatedText), [partner.text, primary.text], label)
+                XCTAssertEqual(harness.translation.calls, [
+                    .init(text: primary.text, speaker: .traveler, pair: pair),
+                    .init(text: partner.text, speaker: .local, pair: pair),
+                ], label)
+
+                harness.coordinator.pauseSession()
+                await assertEventually { harness.coordinator.state == .pausedByUser }
+                for (index, turn) in turns.enumerated() {
+                    harness.coordinator.replayTranslation(for: turn.id)
+                    await assertEventually {
+                        harness.synthesis.spoken.count == index + 1 && harness.coordinator.reviewedPlaybackTurnID == nil
+                    }
+                }
+                XCTAssertEqual(harness.synthesis.spoken, [
+                    .init(text: partner.text, localeIdentifier: partner.locale),
+                    .init(text: primary.text, localeIdentifier: primary.locale),
+                ], label)
+            }
+        }
+    }
+
+    @MainActor
     func testEstablishedPairReplayIsSingleFlightAndRestoresListening() async {
         let range = CMTimeRange(
             start: .zero,
@@ -1322,6 +1384,72 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testMicrophoneBackgroundNotificationBeforeSceneChangePausesUntilResume() async {
+        let harness = makeHarness(finishBatches: [], decisions: [])
+        let talk = harness.coordinator
+        talk.start(pair: harness.pair)
+        defer { talk.cancelSession() }
+        await assertEventually { talk.state == .listening }
+        harness.capture.onCaptureInterrupted?(.background)
+        talk.handleSceneActivity(isActive: false)
+        talk.handleSceneActivity(isActive: true)
+        XCTAssertEqual(talk.state, .interrupted)
+        XCTAssertNil(talk.errorMessage)
+        XCTAssertFalse(harness.capture.isActive)
+        talk.resumeSession()
+        await assertEventually { talk.state == .listening && harness.capture.isActive }
+    }
+
+    /// With the phone near an external speaker, play each station-question fixture
+    /// when prompted. This exercises both sides of the actual audio-session handoff.
+    @MainActor
+    func testHindiAndEnglishPhysicalMicrophoneReopensAfterAutoSpeak() async throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["SPEAK_DUET_LIVE_MIC"] == "1",
+                          "Requires an iPhone and an external acoustic speech source.")
+        let pair = LanguagePair(traveler: .englishUS, local: .hindiIndia)
+        let microphone = MicrophoneCaptureSession()
+        let settings = SettingsStore(defaults: try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)))
+        settings.value.autoSpeak = true
+        let talk = ContinuousConversationCoordinator(
+            capture: microphone, voiceActivity: SileroVoiceActivityDetector(),
+            recognition: AppleContinuousSpeechRecognizer(), translation: ContinuousBidirectionalTranslationEngine(),
+            playback: PlaybackService(synthesis: AppleSpeechSynthesisEngine()), settings: settings,
+            history: HistoryStore(local: LocalHistoryStore(inMemory: true)), access: TestTranslationAuthorization()
+        )
+        var plays = 0
+        let observer = talk.$state.sink { if $0 == .pausedForPlayback { plays += 1 } }
+        defer { observer.cancel(); talk.cancelSession() }
+        talk.speakTranslations = true
+        talk.start(pair: pair)
+        func wait(_ ready: () -> Bool) async throws {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(35))
+            while !ready() {
+                if let message = talk.errorMessage { throw PipelineError.server(message) }
+                guard ContinuousClock.now < deadline else {
+                    throw PipelineError.server("Live microphone timeout in \(talk.state), saved \(talk.turns.count), playbacks \(plays)")
+                }
+                try await Task.sleep(for: .milliseconds(30))
+            }
+        }
+        try await wait { talk.state == .listening && microphone.isActive }
+        for (index, language) in [pair.local, pair.traveler].enumerated() {
+            print("LIVE_MIC_READY \(language.code)")
+            try await wait { plays == index + 1 && talk.turns.count == index + 1 && talk.state == .listening && microphone.isActive }
+            let turn = talk.turns[index]
+            XCTAssertEqual(turn.sourceLocale, language.code)
+            XCTAssertEqual(turn.targetLocale, language == pair.local ? pair.traveler.code : pair.local.code)
+            XCTAssertFalse(turn.translatedText.isEmpty)
+        }
+        // Leave time for the trailing TTS route and interruption notifications.
+        try await Task.sleep(for: .seconds(2))
+        XCTAssertEqual(talk.state, .listening)
+        XCTAssertTrue(microphone.isActive)
+        XCTAssertEqual(talk.turns.count, 2)
+        talk.endSession()
+        try await wait { talk.state == .ended }
+    }
+
+    @MainActor
     func testInstalledAppleModelsTranslateRecordedPausesOnDevice() async throws {
 #if targetEnvironment(simulator)
         throw XCTSkip("Requires installed physical-device speech and translation models.")
@@ -1730,7 +1858,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
 }
 
 @MainActor
-private final class TestTranslationAuthorization: TranslationAuthorizing {
+final class TestTranslationAuthorization: TranslationAuthorizing {
     var allowed = true
     func authorizeTranslation() throws {
         if !allowed { throw PipelineError.server("Translation access ended.") }
@@ -1738,8 +1866,8 @@ private final class TestTranslationAuthorization: TranslationAuthorizing {
 }
 
 @MainActor
-private final class FakeContinuousCapture: MicrophoneCapturing {
-    var onCaptureInterrupted: (() -> Void)?
+final class FakeContinuousCapture: MicrophoneCapturing {
+    var onCaptureInterrupted: ((CaptureLifecycleEvent) -> Void)?
     var onCaptureLimitReached: (() -> Void)?
     var onCaptureFailed: ((String) -> Void)?
     private(set) var isActive = false
@@ -1981,5 +2109,74 @@ private final class FakeContinuousSynthesis: SpeechSynthesisEngine {
     func finishBlockedSpeech() {
         blockedSpeechContinuation?.resume()
         blockedSpeechContinuation = nil
+    }
+}
+
+extension ContinuousConversationCoordinatorTests {
+    @MainActor
+    func testCompetingFinalsBlockPlaybackUntilTheGermanSpeakerIsConfirmed() async throws {
+        let pair = LanguagePair(traveler: .frenchFrance, local: .germanGermany)
+        let german = Self.candidate(text: "Wo ist der Bahnhof?", language: .germanGermany)
+        let range = CMTimeRange(start: .zero, duration: CMTime(seconds: 1, preferredTimescale: 1000))
+        let harness = makeHarness(finishBatches: [[.speechEnded(range: range, reason: .silence)]],
+            decisions: [Self.decision(text: "Vous Esteban Hof", language: .frenchFrance,
+                                       alternate: german, reviewReasons: [.closeScores, .competingFinals])],
+            pair: pair, translations: ["Où est la gare ?"])
+        let talk = harness.coordinator
+        talk.start(pair: pair)
+        defer { talk.cancelSession() }
+        await assertEventually { talk.state == .listening }
+        talk.speakTranslations = true
+        talk.pauseSession()
+        await assertEventually { talk.state == .pausedByUser && talk.turns.count == 1 }
+        let pending = try XCTUnwrap(talk.turns.first)
+        XCTAssertTrue(pending.warnings.contains(.unresolvedSpeaker))
+        XCTAssertFalse(talk.canReplayTranslation(for: pending))
+        XCTAssertTrue(harness.synthesis.spoken.isEmpty)
+        XCTAssertTrue(harness.translation.calls.isEmpty)
+        XCTAssertTrue(talk.confirmSpeaker(for: pending.id, language: .germanGermany, text: german.text))
+        await assertEventually { talk.turns.first?.languageReviewStatus == .corrected }
+        let corrected = try XCTUnwrap(talk.turns.first)
+        XCTAssertEqual(corrected.id, pending.id)
+        XCTAssertEqual(corrected.targetLocale, pair.traveler.code)
+        XCTAssertEqual(corrected.translatedText, "Où est la gare ?")
+    }
+
+    @MainActor
+    func testUnresolvedSpeakerCanChooseLanguageAndEditWithoutAnAlternate() async throws {
+        let range = CMTimeRange(start: .zero, duration: CMTime(seconds: 1, preferredTimescale: 1000))
+        let harness = makeHarness(finishBatches: [[.speechEnded(range: range, reason: .silence)]],
+            decisions: [Self.decision(text: "Two tickets cost thirty", language: .spanishSpain, reviewReasons: [.conflictingSpeakerEvidence])],
+            translations: ["Dos billetes cuestan treinta euros."])
+        let talk = harness.coordinator
+        talk.start(pair: harness.pair)
+        await assertEventually { talk.state == .listening }
+        talk.speakTranslations = true
+        talk.pauseSession()
+        await assertEventually { talk.state == .pausedByUser && talk.turns.count == 1 }
+        let pending = try XCTUnwrap(talk.turns.first)
+        XCTAssertTrue(pending.warnings.contains(.unresolvedSpeaker))
+        XCTAssertTrue(harness.translation.calls.isEmpty)
+        XCTAssertFalse(talk.canReplayTranslation(for: pending))
+        // Resolve this saved turn after an interruption. The phone must translate
+        // the correction without restarting capture or playing unconfirmed audio.
+        talk.handleSceneActivity(isActive: false)
+        XCTAssertFalse(talk.canResolveSpeaker)
+        talk.handleSceneActivity(isActive: true)
+        XCTAssertEqual(talk.state, .interrupted)
+        let captureStarts = harness.capture.startCount
+        talk.confirmSpeaker(for: pending.id, language: .englishUS, text: "Two tickets cost thirty euros.")
+        await assertEventually { talk.turns.first?.languageReviewStatus == .corrected }
+        let final = try XCTUnwrap(talk.turns.first)
+        XCTAssertEqual(final.id, pending.id)
+        XCTAssertEqual(final.sequence, pending.sequence)
+        XCTAssertEqual(final.sourceLocale, "en-US")
+        XCTAssertEqual(final.targetLocale, "es-ES")
+        XCTAssertEqual(final.translatedText, "Dos billetes cuestan treinta euros.")
+        XCTAssertFalse(final.warnings.contains(.unresolvedSpeaker))
+        XCTAssertEqual(harness.translation.calls.count, 1)
+        XCTAssertEqual(talk.state, .interrupted)
+        XCTAssertEqual(harness.capture.startCount, captureStarts)
+        talk.cancelSession()
     }
 }

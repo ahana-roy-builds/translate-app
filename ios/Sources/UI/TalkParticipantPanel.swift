@@ -140,19 +140,21 @@ struct TalkParticipantPanel: View {
 
     private func committedRow(_ turn: ConversationTurn, current: Bool) -> some View {
         let own = turn.speaker == side
+        let unresolved = turn.warnings.contains(.unresolvedSpeaker)
+        let caption = unresolved ? words.checkLanguage : (own ? words.original : words.translation)
         return VStack(alignment: .leading, spacing: 5) {
             let layout = current ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
                                  : AnyLayout(HStackLayout(alignment: .center, spacing: 6))
             layout {
-                phrase(own ? turn.sourceText : turn.translatedText,
-                       caption: own ? words.original : words.translation, prominent: current)
+                phrase(own || unresolved ? turn.sourceText : turn.translatedText,
+                       caption: caption, prominent: current)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                if !own {
+                if !own && !unresolved {
                     TalkReplayButton(turn: turn, isReviewedPlaybackActive: playbackID == turn.id,
                                      canReplayTranslation: canReplay(turn), onReplayTranslation: { replay(turn.id) })
                 }
             }
-            if turn.languageReviewStatus == .needsReview {
+            if turn.languageReviewStatus == .needsReview && !unresolved {
                 Label(words.checkLanguage, systemImage: "questionmark.diamond")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -175,6 +177,7 @@ private struct TurnCard: ViewModifier {
 }
 
 struct ParticipantLabels {
+    let chooseSpeaker: String
     let original: String
     let translation: String
     let placeholder: String
@@ -184,6 +187,17 @@ struct ParticipantLabels {
     let reviewBeforePlaying: String
 
     init(_ language: AppLanguage) {
+        chooseSpeaker = switch language {
+        case .englishUS: "Which language was spoken?"
+        case .spanishSpain: "¿En qué idioma se habló?"
+        case .frenchFrance: "Quelle langue a été parlée ?"
+        case .germanGermany: "Welche Sprache wurde gesprochen?"
+        case .italianItaly: "In quale lingua si è parlato?"
+        case .portugueseBrazil: "Qual idioma foi falado?"
+        case .japaneseJapan: "どちらの言語で話しましたか？"
+        case .koreanSouthKorea: "어떤 언어로 말했나요?"
+        case .hindiIndia: "किस भाषा में कहा गया था?"
+        }
         (original, translation, placeholder) = switch language {
         case .englishUS: ("You said", "Translation", "Your conversation appears here.")
         case .spanishSpain: ("Dijiste", "Traducción", "Tu conversación aparecerá aquí.")

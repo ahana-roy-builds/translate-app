@@ -116,12 +116,14 @@ enum ContinuousModePolicy {
         isEnabledNow: Bool,
         pair: LanguagePair,
         requiresLanguageReview: Bool = false,
-        requiresEntityReview: Bool = false
+        requiresEntityReview: Bool = false,
+        hasEntityMismatch: Bool = false
     ) -> Bool {
         guard shouldSpeakTranslation(
             wasEnabledAtBoundary: wasEnabledAtBoundary,
             isEnabledNow: isEnabledNow
         ) else { return false }
+        guard !hasEntityMismatch else { return false }
         if pair.traveler == .hindiIndia || pair.local == .hindiIndia {
             // Hindi remains reviewable because its two recognizers do not
             // expose calibrated confidence values. Honor the explicit Speak

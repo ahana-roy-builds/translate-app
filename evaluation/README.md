@@ -165,3 +165,11 @@ with example artifacts or self-authored production evidence.
 See the canonical [decision log](../docs/decision-log.md) and
 [release-trust contract](../docs/release-trust.md) for signer roles, producer
 prerequisites, and the go/no-go boundary.
+
+## Continuous speech on iPhone
+
+The opt-in `ContinuousSpeechMatrixTests` feeds the checked-in synthetic WAV files at microphone speed. Build the LocalLingo scheme with `build-for-testing` for iOS, then run `python3 evaluation/scripts/run_continuous_matrix.py <xctestrun> <device-UDID> <result.xcresult>` from the repo root. The recordings and SHA-256 manifest are in the unit-test bundle. Use an unlocked development iPhone with the translation packs installed. The test downloads missing listening assets and rotates its own reservations while preserving the initial reservation set.
+
+Use `--pairs en-US_es-ES,en-US_fr-FR` for the short comparison, `--shared` for the analyzer shared across turns, `--auto-speak` for the playback check, and `--reverse-primary --lifecycle` for a rapid reply, Pause, Resume and Stop with the participants swapped. Add `--bridge` for the Spanish station-near-the-bridge recording. Test output prefixed with `MATRIX` records source, target, both candidates, transcript, translation, participant, boundary-to-commit timing, review and replay outcome. Semantic grading requires comparing the stored message against the fixture's intended meaning.
+
+Score a full device log with `python3 evaluation/scripts/score_continuous_matrix.py <log> --baseline <reviewed-baseline.json> --review <verification.json>`. The scorer reports newly observed text for review, missing turns, speaker and playback accuracy, and how many baseline successes were retained.

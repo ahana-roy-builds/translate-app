@@ -1,3 +1,4 @@
+import AVFoundation
 import CoreMedia
 import Speech
 import XCTest
@@ -87,6 +88,21 @@ final class ContinuousSpeechRecognitionPolicyTests: XCTestCase {
         XCTAssertTrue(decision.reviewReasons.contains(.shortUtterance))
         XCTAssertTrue(decision.reviewReasons.contains(.lowScore))
         XCTAssertTrue(decision.reviewReasons.contains(.closeScores))
+    }
+
+    func testCompetingFrenchAndGermanFinalsRequireSpeakerChoice() throws {
+        let pair = LanguagePair(traveler: .frenchFrance, local: .germanGermany)
+        let french = candidate(language: pair.traveler, text: "Vous Esteban Hof",
+                               confidence: 0.839, lowFraction: 0, languageProbability: 0.998)
+        let german = candidate(language: pair.local, text: "Wo ist der Bahnhof?",
+                               confidence: 0.771, lowFraction: 0, languageProbability: 1)
+        let decision = try XCTUnwrap(ContinuousLanguageDecisionPolicy.decide(candidates: [french, german], pair: pair))
+        XCTAssertTrue(decision.requiresSpeakerChoice)
+        XCTAssertTrue(decision.reviewReasons.contains(.competingFinals))
+        let short = candidate(language: pair.traveler, text: "Hof",
+                              confidence: 0.839, lowFraction: 0, languageProbability: 0.998)
+        let weakAlternate = try XCTUnwrap(ContinuousLanguageDecisionPolicy.decide(candidates: [german, short], pair: pair))
+        XCTAssertFalse(weakAlternate.reviewReasons.contains(.competingFinals))
     }
 
     func testDecisionFlagsStrongTextLanguageDisagreement() throws {
@@ -250,9 +266,37 @@ final class ContinuousSpeechRecognitionPolicyTests: XCTestCase {
             pair: pair
         ))
 
-        XCTAssertEqual(decision.selected.language, .hindiIndia)
+        XCTAssertEqual(decision.selected.language, .englishUS)
         XCTAssertTrue(decision.reviewReasons.contains(.experimentalLanguagePair))
         XCTAssertTrue(decision.needsReview)
+    }
+
+    func testPhoneticallyPlausibleEnglishWithUncertainWordsDoesNotOverrideHindi() throws {
+        let english = candidate(language: .englishUS, text: "Funny miss, but hey.", confidence: 0.67,
+                                lowFraction: 0.10, languageProbability: 1)
+        let hindi = candidate(language: .hindiIndia, text: "पानी मेज़ पर है", confidence: 0.5,
+                              lowFraction: 1, languageProbability: 1)
+        let pair = LanguagePair(traveler: .hindiIndia, local: .englishUS)
+        let decision = try XCTUnwrap(ContinuousLanguageDecisionPolicy.decide(candidates: [english, hindi], pair: pair))
+        XCTAssertEqual(decision.selected.language, .hindiIndia)
+        var selector = ContinuousDraftSelector()
+        _ = selector.select(candidates: [english])
+        let candidates = [english, hindi]
+        let preference = PairLanguageEvidencePolicy.preferredLanguage(in: candidates)
+        XCTAssertEqual(selector.select(candidates: candidates, preferredLanguage: preference)?.language, .englishUS)
+        XCTAssertEqual(selector.select(candidates: candidates, preferredLanguage: preference)?.language, .hindiIndia)
+    }
+
+    func testPunctuationAloneCannotWinOrBecomeAnAlternate() throws {
+        let punctuation = candidate(language: .englishUS, text: "...", confidence: 0.99,
+                                    lowFraction: 0, languageProbability: 1)
+        let spoken = candidate(language: .hindiIndia, text: "हाँ", confidence: 0.5,
+                               lowFraction: 0, languageProbability: 1)
+        let pair = LanguagePair(traveler: .hindiIndia, local: .englishUS)
+        let decision = try XCTUnwrap(ContinuousLanguageDecisionPolicy.decide(candidates: [punctuation, spoken], pair: pair))
+        XCTAssertEqual(decision.selected.language, .hindiIndia)
+        XCTAssertNil(decision.alternate)
+        XCTAssertNil(ContinuousLanguageDecisionPolicy.decide(candidates: [punctuation], pair: pair))
     }
 
     func testFinalizationProgressRequiresEveryCompanionThroughTarget() {
@@ -285,21 +329,6 @@ final class ContinuousSpeechRecognitionPolicyTests: XCTestCase {
             [.englishUS, .spanishSpain],
             through: target
         ))
-    }
-
-    func testHindiDictationGetsALongerBoundedFinalResultDrain() {
-        XCTAssertEqual(
-            AppleContinuousSpeechRecognizer.finalResultDrainTimeout(
-                for: LanguagePair(traveler: .englishUS, local: .spanishSpain)
-            ),
-            .milliseconds(500)
-        )
-        XCTAssertEqual(
-            AppleContinuousSpeechRecognizer.finalResultDrainTimeout(
-                for: LanguagePair(traveler: .englishUS, local: .hindiIndia)
-            ),
-            .seconds(3)
-        )
     }
 
     func testFinalDrainAcceptsOneRecognizerWhenAlternateStaysSilent() {
@@ -433,6 +462,16 @@ final class ContinuousSpeechRecognitionPolicyTests: XCTestCase {
         XCTAssertEqual(accumulator.transcript()?.text, "current")
     }
 
+    func testCrossingWordBelongsToOnlyTheTurnContainingItsMidpoint() {
+        var word = AttributedString("puente")
+        word[AttributeScopes.SpeechAttributes.TimeRangeAttribute.self] = range(start: 0.6, duration: 0.5)
+        var accumulator = ContinuousRecognitionAccumulator()
+        accumulator.apply(range: range(start: 0.6, duration: 0.5), text: "puente", isFinal: true,
+                          confidence: 0.95, lowConfidenceFraction: 0, timedText: word)
+        XCTAssertEqual(accumulator.transcript(in: range(start: 0, duration: 1))?.text, "puente")
+        XCTAssertNil(accumulator.transcript(in: range(start: 1, duration: 1)))
+    }
+
     func testBoundarySplitsTimedWordsAndKeepsBufferedReply() {
         var accumulator = ContinuousRecognitionAccumulator()
         var lastWord = AttributedString("thanks")
@@ -448,6 +487,71 @@ final class ContinuousSpeechRecognitionPolicyTests: XCTestCase {
         XCTAssertEqual(accumulator.transcript(in: firstTurn)?.text, "thanks")
         accumulator.retireLiveDraft(through: firstTurn.end)
         XCTAssertEqual(accumulator.transcript()?.text, "hola amiga")
+    }
+
+    func testAdjacentIsolatedTurnsSplitTheSamePCMBufferWithoutLeakingAudio() throws {
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1))
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 32))
+        buffer.frameLength = 32
+        for i in 0..<32 { buffer.floatChannelData![0][i] = Float(i) }
+        var audio = TurnSpeechAudio()
+        let start = CMTime(value: 48_000, timescale: 16_000)
+        let split = start + CMTime(value: 12, timescale: 16_000)
+        let end = start + CMTime(value: 32, timescale: 16_000)
+        audio.append(buffer, through: end, speechStart: start)
+        let first = CMTimeRange(start: start, end: split)
+        let second = CMTimeRange(start: split, end: end)
+        func samples(_ turn: CMTimeRange) throws -> [Float] {
+            try audio.take(turn).compactMap { try $0.samples(in: turn) }.flatMap { part in
+                Array(UnsafeBufferPointer(start: part.floatChannelData![0], count: Int(part.frameLength)))
+            }
+        }
+        XCTAssertEqual(try samples(first), (0..<12).map(Float.init))
+        XCTAssertEqual(try samples(second), (12..<32).map(Float.init))
+        XCTAssertTrue(audio.take(first).isEmpty)
+    }
+
+    @MainActor
+    func testQueuedHindiAndEnglishTurnsUseSeparateSpeechContextsOnDevice() async throws {
+#if targetEnvironment(simulator)
+        throw XCTSkip("Requires installed English and Hindi speech models on an iPhone.")
+#else
+        let pair = LanguagePair(traveler: .englishUS, local: .hindiIndia)
+        let availability = await AppleSpeechRecognitionEngine().continuousAssetReadiness(pair: pair)
+        try XCTSkipUnless(ContinuousModePolicy.supports(pair) && availability == .ready, "English and Hindi models required.")
+        let recognizer = AppleContinuousSpeechRecognizer()
+        defer { recognizer.stop() }
+        try await recognizer.start(pair: pair, onDraft: { _ in }, onFailure: { XCTFail($0.localizedDescription) })
+        var time = CMTime.zero
+        var ranges: [CMTimeRange] = []
+        // Queue the English response before waiting for Hindi to finish.
+        // The Hindi fixture is synthetic: “मुझे जयपुर जाना है, दिल्ली नहीं।”
+        for name in ["SpokenHindiDestination", "SpokenTurn"] {
+            let url = try XCTUnwrap(Bundle(for: Self.self).url(forResource: name, withExtension: "wav"))
+            let file = try AVAudioFile(forReading: url)
+            let start = time
+            recognizer.beginUtterance(at: start)
+            while file.framePosition < file.length {
+                let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 1024))
+                try file.read(into: buffer)
+                let rate = CMTimeScale(file.processingFormat.sampleRate.rounded())
+                let stamp = AVAudioTime(sampleTime: CMTimeConvertScale(time, timescale: rate, method: .default).value,
+                                        atRate: file.processingFormat.sampleRate)
+                try recognizer.append(buffer, at: stamp)
+                time = time + CMTime(value: Int64(buffer.frameLength), timescale: rate)
+            }
+            let turn = CMTimeRange(start: start, end: time)
+            ranges.append(turn)
+            _ = recognizer.takeDraft(in: turn) { _ in }
+        }
+        _ = try recognizer.finishInput()
+        let hindi = try await recognizer.finalizeUtterance(in: ranges[0])
+        let english = try await recognizer.finalizeUtterance(in: ranges[1])
+        XCTAssertEqual(hindi.selected.language, .hindiIndia)
+        XCTAssertTrue(hindi.selected.text.contains("जयपुर"))
+        XCTAssertEqual(english.selected.language, .englishUS)
+        XCTAssertFalse(english.selected.text.isEmpty)
+#endif
     }
 
     func testAccumulatorTreatsEmptyPointRevisionAsRetraction() {

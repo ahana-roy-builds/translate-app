@@ -296,12 +296,9 @@ final class AppleSpeechRecognitionEngine: SpeechRecognitionEngine, SpeechAssetMa
         let travelerPlan = try await AppleSpeechModulePlan.resolve(for: pair.traveler.locale)
         let localPlan = try await AppleSpeechModulePlan.resolve(for: pair.local.locale)
         try Task.checkCancellation()
-        return [
-            travelerPlan.makeModule(for: .continuousLive).analyzerModule,
-            localPlan.makeModule(for: .continuousLive).analyzerModule,
-            travelerPlan.makeModule(for: .continuousFinal).analyzerModule,
-            localPlan.makeModule(for: .continuousFinal).analyzerModule
-        ]
+        return AppleSpeechModulePlan.continuousRoles(for: pair).flatMap { role in
+            [travelerPlan, localPlan].map { $0.makeModule(for: role).analyzerModule }
+        }
     }
 
     private func requireContinuousAudioFormat(

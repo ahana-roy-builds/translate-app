@@ -271,9 +271,10 @@ struct CriticalEntityExtractor: Sendable {
         timeZone: TimeZone
     ) -> CriticalEntityExtraction {
         let full = NSRange(text.startIndex..<text.endIndex, in: text)
-        var occupied = Set<NSRangeKey>()
-        var result: [CriticalEntity] = []
-        var limitExceeded = false
+        let claims = LocalizedNumericClaims.matches(in: text, locale: locale)
+        var occupied = Set(claims.map { NSRangeKey($0.range) })
+        var result = claims.prefix(ConversationContentPolicy.maximumSafetyEntities).map(\.entity)
+        var limitExceeded = claims.count > ConversationContentPolicy.maximumSafetyEntities
 
         for rule in rules(for: locale) {
             guard !limitExceeded else { break }
@@ -281,7 +282,10 @@ struct CriticalEntityExtractor: Sendable {
             regex.enumerateMatches(in: text, range: full) { match, _, stop in
                 guard let match else { return }
                 guard let range = Range(match.range, in: text) else { return }
-                let key = NSRangeKey(match.range)
+                let fragment = text[range]
+                guard let first = fragment.firstIndex(where: { !$0.isWhitespace }),
+                      let last = fragment.lastIndex(where: { !$0.isWhitespace }) else { return }
+                let key = NSRangeKey(NSRange(first...last, in: text))
                 if occupied.contains(where: { $0.contains(key) }) { return }
                 guard result.count < ConversationContentPolicy.maximumSafetyEntities else {
                     limitExceeded = true
@@ -358,6 +362,12 @@ struct CriticalEntityExtractor: Sendable {
 
     private func equivalent(_ lhs: String, _ rhs: String, kind: CriticalEntityKind) -> Bool {
         if lhs == rhs { return true }
+        if kind == .time, lhs.hasPrefix("departure:"), rhs.hasPrefix("departure:"),
+           lhs.hasSuffix("@24h") || rhs.hasSuffix("@24h") {
+            // A 24-hour clock supplies its own AM/PM. An unqualified "nine" on
+            // its own cannot establish whether an explicitly added AM or PM is right.
+            return lhs.split(separator: "@").first == rhs.split(separator: "@").first
+        }
         // Names and address street labels can be transliterated, but their numeric
         // components may never change. Anything else remains review-required.
         if kind == .address {
@@ -471,7 +481,7 @@ struct CriticalEntityExtractor: Sendable {
         replacingDevanagariDigits(in: value).filter(\.isNumber)
     }
 
-    private func canonicalDigits(_ value: String) -> String {
+    func canonicalDigits(_ value: String) -> String {
         var result = replacingDevanagariDigits(in: value)
             .filter { $0.isNumber || $0 == "." || $0 == "," || $0 == "-" }
         if result.contains(","), !result.contains(".") {

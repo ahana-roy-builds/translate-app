@@ -16,7 +16,7 @@ final class AudioCaptureService {
         microphone = MicrophoneCaptureSession(
             notificationCenter: notificationCenter
         )
-        microphone.onCaptureInterrupted = { [weak self] in
+        microphone.onCaptureInterrupted = { [weak self] _ in
             self?.onCaptureInterrupted?()
         }
         microphone.onCaptureLimitReached = { [weak self] in

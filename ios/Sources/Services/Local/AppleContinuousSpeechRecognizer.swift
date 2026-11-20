@@ -7,12 +7,23 @@ import Speech
 
 @MainActor
 final class AppleContinuousSpeechRecognizer: ContinuousSpeechRecognizing {
+    // Only the opt-in synthetic-fixture runner supplies this observer.
+    var observeFixtureDiagnostic: ((String, [String: String]) -> Void)? {
+        didSet { turnSession?.observeFixtureDiagnostic = observeFixtureDiagnostic }
+    }
+    private let usesSharedAnalyzer: Bool
+
+    init(usesSharedAnalyzer: Bool = false) {
+        self.usesSharedAnalyzer = usesSharedAnalyzer
+    }
+
     private enum ResultKind {
         case liveDraft
         case finalOnly
     }
 
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "SpeakDuet", category: "Recognition")
+    private var turnSession: TurnSpeechSession?
     private var analyzer: SpeechAnalyzer?
     private var converter: SpeechAnalyzerInputConverter?
     private var inputContinuation: AsyncStream<AnalyzerInput>.Continuation?
@@ -64,6 +75,11 @@ final class AppleContinuousSpeechRecognizer: ContinuousSpeechRecognizing {
         let localPlan = try await AppleSpeechModulePlan.resolve(
             for: pair.local.locale
         )
+        if !usesSharedAnalyzer || pair.isEnglishHindi {
+            turnSession = try await TurnSpeechSession(pair: pair, plans: [travelerPlan, localPlan], onDraft: onDraft)
+            turnSession?.observeFixtureDiagnostic = observeFixtureDiagnostic
+            return
+        }
         // Apple may not reissue an unchanged volatile result when finalizing.
         // Final-only companions are therefore authoritative for committed turns.
         let travelerLive = travelerPlan.makeModule(for: .continuousLive)
@@ -168,6 +184,7 @@ final class AppleContinuousSpeechRecognizer: ContinuousSpeechRecognizing {
     }
 
     func append(_ buffer: AVAudioPCMBuffer, at audioTime: AVAudioTime?) throws {
+        if let turnSession { return try turnSession.append(buffer, at: audioTime) }
         if let terminalError { throw terminalError }
         guard let converter, let inputContinuation else {
             throw PipelineError.server("Continuous listening has not started.")
@@ -179,6 +196,7 @@ final class AppleContinuousSpeechRecognizer: ContinuousSpeechRecognizing {
     }
 
     func finishInput() throws -> CMTime? {
+        if let turnSession { return try turnSession.finishInput() }
         if let terminalError { throw terminalError }
         guard let converter, let inputContinuation else {
             throw PipelineError.server("Continuous listening has not started.")
@@ -192,6 +210,7 @@ final class AppleContinuousSpeechRecognizer: ContinuousSpeechRecognizing {
     }
 
     func finalizeUtterance(in range: CMTimeRange) async throws -> LanguageDecision {
+        if let turnSession { return try await turnSession.finalize(range) }
         let sessionGeneration = generation
         defer {
             if sessionGeneration == generation {
@@ -233,6 +252,13 @@ final class AppleContinuousSpeechRecognizer: ContinuousSpeechRecognizing {
             pair: pair,
             generation: sessionGeneration
         )
+        if let observeFixtureDiagnostic {
+            observeFixtureDiagnostic("finalization", [
+                "drained": String(finalResultsReady), "requestedEnd": String(range.end.seconds),
+                "deliveredThrough": String(converter?.deliveredThrough?.seconds ?? 0),
+                "finalizedEnd": String(finalizableRange.end.seconds)
+            ])
+        }
         let candidates = finalizedCandidates(in: finalizableRange, pair: pair)
         logger.debug("Finalized range \(startSeconds) to \(endSeconds), candidates \(candidates.count)")
         guard Self.shouldAcceptFinalizedCandidates(
@@ -245,11 +271,6 @@ final class AppleContinuousSpeechRecognizer: ContinuousSpeechRecognizing {
                 analyzer: analyzer,
                 generation: sessionGeneration
             )
-            if pair.traveler == .hindiIndia || pair.local == .hindiIndia {
-                throw PipelineError.server(
-                    "Hindi listening did not finish this turn in time. Please try again."
-                )
-            }
             throw PipelineError.noSpeech
         }
         guard generation == sessionGeneration else { throw CancellationError() }
@@ -282,6 +303,7 @@ final class AppleContinuousSpeechRecognizer: ContinuousSpeechRecognizing {
     }
 
     func cancelAnalysis(before time: CMTime) {
+        if let turnSession { return turnSession.discard(before: time) }
         guard CMTimeGetSeconds(time).isFinite else { return }
         for language in Array(liveAccumulators.keys) {
             liveAccumulators[language]?.discard(before: time)
@@ -420,6 +442,13 @@ final class AppleContinuousSpeechRecognizer: ContinuousSpeechRecognizing {
             )
             return
         }
+        if let observeFixtureDiagnostic {
+            let timedWords = result.text.runs.compactMap { run -> String? in
+                guard let time = run[AttributeScopes.SpeechAttributes.TimeRangeAttribute.self] else { return nil }
+                return "\(String(result.text[run.range].characters))@\(time.start.seconds)-\(time.end.seconds)"
+            }
+            observeFixtureDiagnostic("rawFinal", ["locale": language.code, "text": text, "timedWords": timedWords.joined(separator: "|")])
+        }
         let confidence = Self.confidenceSummary(result.text)
         guard finalAccumulators[language]?.apply(
             range: result.range,
@@ -454,6 +483,7 @@ final class AppleContinuousSpeechRecognizer: ContinuousSpeechRecognizing {
     }
 
     func beginUtterance(at start: CMTime) {
+        if let turnSession { return turnSession.begin(at: start) }
         activeSpeechStart = start
         trimLiveBuffer(through: start)
         draftSelector.reset()
@@ -468,6 +498,7 @@ final class AppleContinuousSpeechRecognizer: ContinuousSpeechRecognizing {
     }
 
     func takeDraft(in range: CMTimeRange, onRevision: @escaping @MainActor (ContinuousDraft?) -> Void) -> ContinuousDraft? {
+        if let turnSession { return turnSession.close(range, onRevision: onRevision) }
         let snapshot = makeDraft(in: range, selector: &draftSelector)
         closingDrafts.append(ClosingDraft(range: range, selector: draftSelector, publish: onRevision))
         activeSpeechStart = nil
@@ -553,7 +584,7 @@ final class AppleContinuousSpeechRecognizer: ContinuousSpeechRecognizing {
         let languages = [pair.traveler, pair.local]
         let clock = ContinuousClock()
         let start = clock.now
-        let alternateDeadline = start.advanced(by: Self.finalResultDrainTimeout(for: pair))
+        let alternateDeadline = start.advanced(by: .milliseconds(500))
         let firstResultDeadline = start.advanced(by: .seconds(3))
         while !finalizationProgress.includes(languages, through: target) {
             try Task.checkCancellation()
@@ -581,12 +612,6 @@ final class AppleContinuousSpeechRecognizer: ContinuousSpeechRecognizing {
         for language in [pair.traveler, pair.local] {
             finalAccumulators[language]?.discard(before: end)
         }
-    }
-
-    nonisolated static func finalResultDrainTimeout(for pair: LanguagePair) -> Duration {
-        pair.traveler == .hindiIndia || pair.local == .hindiIndia
-            ? .seconds(3)
-            : .milliseconds(500)
     }
 
     nonisolated static func shouldAcceptFinalizedCandidates(
@@ -636,6 +661,10 @@ final class AppleContinuousSpeechRecognizer: ContinuousSpeechRecognizing {
     @discardableResult
     private func detachCurrentSession() -> SpeechAnalyzer? {
         generation = UUID()
+        if let turnSession {
+            cleanupTask = turnSession.stop()
+            self.turnSession = nil
+        }
         inputContinuation?.finish()
         analysisTask?.cancel()
         resultTasks.forEach { $0.cancel() }
@@ -661,7 +690,7 @@ final class AppleContinuousSpeechRecognizer: ContinuousSpeechRecognizing {
         return detachedAnalyzer
     }
 
-    nonisolated private static func confidenceSummary(
+    nonisolated static func confidenceSummary(
         _ text: AttributedString
     ) -> (mean: Double?, lowFraction: Double) {
         var weightedTotal = 0.0
@@ -685,7 +714,7 @@ final class AppleContinuousSpeechRecognizer: ContinuousSpeechRecognizing {
         )
     }
 
-    nonisolated private static func languageProbability(
+    nonisolated static func languageProbability(
         for text: String,
         expected: AppLanguage,
         pair: LanguagePair

@@ -197,6 +197,7 @@ struct ContinuousConversationView: View {
         .onDisappear { recheckBeforeStarting = false }
         .onChange(of: settings.value.pair) { _, _ in resetStartCheck() }
         .onChange(of: settings.value.continuousTranslationStrategy) { _, _ in resetStartCheck() }
+        .environmentObject(coordinator)
         .onAppear {
             coordinator.handleSceneActivity(isActive: scenePhase == .active)
             syncSpokenTranslationPreference()
@@ -1156,7 +1157,8 @@ struct ContinuousTurnRow: View {
     }
 
     private var directionLabel: String {
-        "\(languageName(turn.sourceLocale)) to \(languageName(turn.targetLocale))"
+        if turn.warnings.contains(.unresolvedSpeaker) { return "Check detected language" }
+        return "\(languageName(turn.sourceLocale)) to \(languageName(turn.targetLocale))"
     }
 
     var body: some View {
@@ -1172,7 +1174,7 @@ struct ContinuousTurnRow: View {
                         .font(.caption.weight(isNewest ? .bold : .semibold))
                         .foregroundStyle(isNewest ? TranslatorTheme.accent : Color.secondary)
                         .accessibilityLabel(
-                            isNewest
+                            isNewest && !turn.warnings.contains(.unresolvedSpeaker)
                                 ? "Latest translation, \(directionLabel)"
                                 : directionLabel
                         )
@@ -1188,7 +1190,7 @@ struct ContinuousTurnRow: View {
                     if !alignsTrailing { Spacer(minLength: 0) }
                 }
 
-                translationAndPlayback
+                if !turn.warnings.contains(.unresolvedSpeaker) { translationAndPlayback }
 
                 Text(turn.sourceText)
                     .font(.subheadline)
@@ -1260,6 +1262,10 @@ struct TalkTurnReview: View {
     let allowsLanguageCorrection: Bool
     let onSwapLanguage: () -> Void
 
+    @EnvironmentObject private var coordinator: ContinuousConversationCoordinator
+    @State private var editingLanguage: AppLanguage?
+    @State private var reviewedText = ""
+
     @ViewBuilder
     var body: some View {
         if !turn.entities.isEmpty {
@@ -1292,7 +1298,33 @@ struct TalkTurnReview: View {
             .foregroundStyle(.orange)
         }
 
-        if allowsLanguageCorrection,
+        if turn.warnings.contains(.unresolvedSpeaker) && coordinator.canResolveSpeaker {
+            Text(ParticipantLabels(readerLanguage).chooseSpeaker).font(.caption.bold())
+            let options = [turn.sourceLocale, turn.targetLocale].compactMap { code in
+                AppLanguage.allCases.first { $0.code == code }
+            }
+            HStack {
+                ForEach(options, id: \.code) { language in
+                    Button(language.nativeName) {
+                        reviewedText = language.code == turn.sourceLocale ? turn.sourceText : turn.alternateTranscript?.text ?? ""
+                        editingLanguage = language
+                    }
+                }
+            }
+            .buttonStyle(.bordered)
+            if let editingLanguage {
+                TextField(editingLanguage.nativeName, text: $reviewedText, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                Button {
+                    if coordinator.confirmSpeaker(for: turn.id, language: editingLanguage, text: reviewedText) {
+                        self.editingLanguage = nil
+                    }
+                } label: {
+                    Label(ParticipantLabels(readerLanguage).translation, systemImage: "checkmark")
+                }
+                .disabled((try? TurnTextPolicy.validated(reviewedText)) == nil || !reviewedText.contains { $0.isLetter || $0.isNumber })
+            }
+        } else if allowsLanguageCorrection,
            turn.languageReviewStatus == .needsReview,
            turn.alternateTranscript != nil {
             Button(action: onSwapLanguage) {

@@ -55,14 +55,11 @@ final class AppleSpeechModulePlanTests: XCTestCase {
         }
     }
 
-    func testHindiAssetPlanCoversLiveAndFinalDictationConfigurations() {
-        XCTAssertEqual(
-            AppleSpeechModulePlan.assetRoles(for: Locale(identifier: "hi-IN")),
-            [.continuousLive, .continuousFinal]
-        )
-        XCTAssertEqual(
-            AppleSpeechModulePlan.assetRoles(for: Locale(identifier: "en-US")),
-            [.manual]
-        )
+    func testAssetCheckMatchesTheModulesUsedForContinuousRecognition() {
+        let hindi = LanguagePair(traveler: .englishUS, local: .hindiIndia)
+        XCTAssertEqual(AppleSpeechModulePlan.continuousRoles(for: hindi), [.manual])
+        XCTAssertEqual(AppleSpeechModulePlan.continuousRoles(for: hindi.swapped), [.manual])
+        let spanish = LanguagePair(traveler: .englishUS, local: .spanishSpain)
+        XCTAssertEqual(AppleSpeechModulePlan.continuousRoles(for: spanish), [.manual, .continuousLive])
     }
 }

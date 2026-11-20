@@ -1,0 +1,218 @@
+[
+  {
+    "code": "en-US",
+    "idx": 0,
+    "text": "Where is the train station?",
+    "voice": "Samantha",
+    "seconds": 1.639,
+    "sha256": "4f4497abe9766d8523c48ed6a2fb5c7f8e098f9714e5ce858e7ede773e11b2e2"
+  },
+  {
+    "code": "en-US",
+    "idx": 1,
+    "text": "Two tickets cost thirty euros.",
+    "voice": "Samantha",
+    "seconds": 1.996875,
+    "sha256": "1a113cce5f137b012b9cf596db2f043f5dbd515479e7c6967a80c15ed245242d"
+  },
+  {
+    "code": "en-US",
+    "idx": 2,
+    "text": "The train leaves at nine, not ten.",
+    "voice": "Samantha",
+    "seconds": 2.392125,
+    "sha256": "18cf7158622c7db1f9f621022485f4d40de4c8dde94b38d1289fb98d5adbd1f3"
+  },
+  {
+    "code": "es-ES",
+    "idx": 0,
+    "text": "¿Dónde está la estación de tren?",
+    "voice": "Mónica",
+    "seconds": 1.7151875,
+    "sha256": "0503a0c5d6a7a5c70eaaa79312b6a3668810881a322e00ac72b17d3a1b04e2b5"
+  },
+  {
+    "code": "es-ES",
+    "idx": 1,
+    "text": "Dos billetes cuestan treinta euros.",
+    "voice": "Mónica",
+    "seconds": 1.9473125,
+    "sha256": "fb7ac814f2f6ad4b6cb659edc65a1d201d45bc221581403bb5df814bf2938311"
+  },
+  {
+    "code": "es-ES",
+    "idx": 2,
+    "text": "El tren sale a las nueve, no a las diez.",
+    "voice": "Mónica",
+    "seconds": 2.3646875,
+    "sha256": "beb5176a4accb53a0958bbcc5ae1284137d90a05055dda031bf3bb7478035212"
+  },
+  {
+    "code": "fr-FR",
+    "idx": 0,
+    "text": "Où est la gare ?",
+    "voice": "Thomas",
+    "seconds": 1.019375,
+    "sha256": "3a66d991ca899c71440449ca71fc6174b8413a62dfbf7e82b3c1de5ab69649de"
+  },
+  {
+    "code": "fr-FR",
+    "idx": 1,
+    "text": "Deux billets coûtent trente euros.",
+    "voice": "Thomas",
+    "seconds": 1.683,
+    "sha256": "f2888d85f10e47af942c9b1e8990c64854a5c4a18e269c9e763c8b256b122ee2"
+  },
+  {
+    "code": "fr-FR",
+    "idx": 2,
+    "text": "Le train part à neuf heures, pas à dix heures.",
+    "voice": "Thomas",
+    "seconds": 2.88825,
+    "sha256": "49774e55d1d3d5bc0afffdef081fe4d1546e21a49c57b89f268f538ba0dd5159"
+  },
+  {
+    "code": "de-DE",
+    "idx": 0,
+    "text": "Wo ist der Bahnhof?",
+    "voice": "Anna",
+    "seconds": 1.427,
+    "sha256": "61248d0782089a6c7d8158986ef33703712c9fd3edcee0dc44ea7134ec041b71"
+  },
+  {
+    "code": "de-DE",
+    "idx": 1,
+    "text": "Zwei Fahrkarten kosten dreißig Euro.",
+    "voice": "Anna",
+    "seconds": 2.6155625,
+    "sha256": "227acf07bf1c680db72c7f4c4529c15f77d45ae06dc57d497119e3079d779935"
+  },
+  {
+    "code": "de-DE",
+    "idx": 2,
+    "text": "Der Zug fährt um neun Uhr ab, nicht um zehn.",
+    "voice": "Anna",
+    "seconds": 3.07375,
+    "sha256": "3a360cf592557800f07746f0239edfc1cde69314848fe403ddf5f32e93e26e31"
+  },
+  {
+    "code": "it-IT",
+    "idx": 0,
+    "text": "Dov’è la stazione ferroviaria?",
+    "voice": "Alice",
+    "seconds": 1.8668125,
+    "sha256": "092d97fba4dd39f09c0f8688d38f31e461c56d6b55cb628a27bda7b7290a930b"
+  },
+  {
+    "code": "it-IT",
+    "idx": 1,
+    "text": "Due biglietti costano trenta euro.",
+    "voice": "Alice",
+    "seconds": 2.12225,
+    "sha256": "5c0fed482fb4b32f200d241502d7c218cb68e8130f580a080710f5e0980584b7"
+  },
+  {
+    "code": "it-IT",
+    "idx": 2,
+    "text": "Il treno parte alle nove, non alle dieci.",
+    "voice": "Alice",
+    "seconds": 2.6790625,
+    "sha256": "e215ba2f30a6777f35228db46bda7daa9a142672b5051fd355a6964aa50596c4"
+  },
+  {
+    "code": "pt-BR",
+    "idx": 0,
+    "text": "Onde fica a estação de trem?",
+    "voice": "Luciana",
+    "seconds": 2.113375,
+    "sha256": "633be718676752899e294d5404ecaa3ac1d17e257bc27be01bfb4086549392b5"
+  },
+  {
+    "code": "pt-BR",
+    "idx": 1,
+    "text": "Duas passagens custam trinta euros.",
+    "voice": "Luciana",
+    "seconds": 2.694,
+    "sha256": "6d94cb9a0237ca45fb38f9b51e67cebfe0603201ad18e8decd10a28375d315b1"
+  },
+  {
+    "code": "pt-BR",
+    "idx": 2,
+    "text": "O trem sai às nove, não às dez.",
+    "voice": "Luciana",
+    "seconds": 2.7149375,
+    "sha256": "b62e87b8786a6e6d5c5476efb7b495faad357e3db8f67b9ad26203e9082799ca"
+  },
+  {
+    "code": "ja-JP",
+    "idx": 0,
+    "text": "駅はどこですか？",
+    "voice": "Kyoko",
+    "seconds": 1.4823125,
+    "sha256": "952621f3f76b003817386f0f6d64c6e57f007d960f2822800f08dec10e578936"
+  },
+  {
+    "code": "ja-JP",
+    "idx": 1,
+    "text": "切符は二枚で三十ユーロです。",
+    "voice": "Kyoko",
+    "seconds": 2.79325,
+    "sha256": "67b7ede4833d4450b7aca201831c49f645adb9981989c8aff2052bcdbc667a94"
+  },
+  {
+    "code": "ja-JP",
+    "idx": 2,
+    "text": "電車は十時ではなく九時に出発します。",
+    "voice": "Kyoko",
+    "seconds": 3.4160625,
+    "sha256": "1bdf87465e648f7ceb8447edf1589423a13bed8485e953fa506acfd0d3cb304f"
+  },
+  {
+    "code": "ko-KR",
+    "idx": 0,
+    "text": "기차역이 어디에 있나요?",
+    "voice": "Yuna",
+    "seconds": 1.5980625,
+    "sha256": "8a73df5a6681b5917a0315fbe981b1d4a00bd5c75a567c0b59ce684afff47405"
+  },
+  {
+    "code": "ko-KR",
+    "idx": 1,
+    "text": "표 두 장은 삼십 유로예요.",
+    "voice": "Yuna",
+    "seconds": 1.9099375,
+    "sha256": "40e756add8beedad7e1f77551041c4f487d8947a76c6360d51063a3ac5e22640"
+  },
+  {
+    "code": "ko-KR",
+    "idx": 2,
+    "text": "기차는 열 시가 아니라 아홉 시에 출발해요.",
+    "voice": "Yuna",
+    "seconds": 3.1028125,
+    "sha256": "b7c2a871d592f67e89aee8421a2c5ff36110b1d6d6269dc1e799c60c5221630e"
+  },
+  {
+    "code": "hi-IN",
+    "idx": 0,
+    "text": "रेलवे स्टेशन कहाँ है?",
+    "voice": "Lekha",
+    "seconds": 1.7270625,
+    "sha256": "f79645153b0d0b418004f2f5e09c4395f1ad256593e70b8c6b32565f6678262c"
+  },
+  {
+    "code": "hi-IN",
+    "idx": 1,
+    "text": "दो टिकटों की कीमत तीस यूरो है।",
+    "voice": "Lekha",
+    "seconds": 2.293375,
+    "sha256": "4a566e7ddaf4fd91693a40f4a109280d3aac745fcdd9500633f4fa6f0956c27c"
+  },
+  {
+    "code": "hi-IN",
+    "idx": 2,
+    "text": "ट्रेन नौ बजे चलती है, दस बजे नहीं।",
+    "voice": "Lekha",
+    "seconds": 2.755125,
+    "sha256": "bd65db2b9980490de656412d276d46b6f0a8184cf724184dc756370e124c08eb"
+  }
+]

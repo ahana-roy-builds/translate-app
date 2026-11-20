@@ -150,11 +150,10 @@ struct AppleSpeechModulePlan: Sendable {
         }
     }
 
-    /// Pack readiness covers every distinct configuration used at runtime.
-    /// SpeechTranscriber shares one model across its reporting configurations;
-    /// Hindi is checked and installed with both progressive and final modules.
+    /// Pack readiness checks the configuration used by manual and turn-local
+    /// recognition. The other SpeechTranscriber reporting modes share its asset.
     func makeAssetModules() -> [AppleSpeechTranscriptionModule] {
-        Self.assetRoles(for: requestedLocale).map(makeModule(for:))
+        [makeModule(for: .manual)]
     }
 
     static func implementation(
@@ -165,8 +164,10 @@ struct AppleSpeechModulePlan: Sendable {
         return role == .continuousFinal ? .longDictation : .progressiveLongDictation
     }
 
-    static func assetRoles(for locale: Locale) -> [AppleSpeechModuleRole] {
-        usesDictation(for: locale) ? [.continuousLive, .continuousFinal] : [.manual]
+    static func continuousRoles(for pair: LanguagePair) -> [AppleSpeechModuleRole] {
+        // Hindi dictation already delivers progressive drafts. Use fast companions
+        // for the other pairs and reserve the manual recognizers for saved text.
+        pair.isEnglishHindi ? [.manual] : [.manual, .continuousLive]
     }
 
     static func usesDictation(for locale: Locale) -> Bool {
