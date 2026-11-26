@@ -31,38 +31,34 @@ final class ContinuousTranscriptPresentationTests: XCTestCase {
         )
     }
 
-    func testPlaybackPresentationKeepsStableSafetyAndActivityStates() {
+    func testPlaybackPresentationTracksAvailabilityAndActivity() {
         XCTAssertEqual(
             ContinuousTurnPlaybackPresentation.resolve(
                 isActive: false,
-                canReplay: true,
-                isSafetyBlocked: false
+                canReplay: true
             ),
             .ready
         )
         XCTAssertEqual(
             ContinuousTurnPlaybackPresentation.resolve(
                 isActive: true,
-                canReplay: false,
-                isSafetyBlocked: false
+                canReplay: false
             ),
             .playing
         )
         XCTAssertEqual(
             ContinuousTurnPlaybackPresentation.resolve(
                 isActive: false,
-                canReplay: false,
-                isSafetyBlocked: false
+                canReplay: false
             ),
             .temporarilyUnavailable
         )
         XCTAssertEqual(
             ContinuousTurnPlaybackPresentation.resolve(
                 isActive: true,
-                canReplay: true,
-                isSafetyBlocked: true
+                canReplay: true
             ),
-            .safetyBlocked
+            .playing
         )
     }
 
@@ -72,14 +68,13 @@ final class ContinuousTranscriptPresentationTests: XCTestCase {
         XCTAssertFalse(
             ContinuousTurnPlaybackPresentation.temporarilyUnavailable.isEnabled
         )
-        XCTAssertFalse(ContinuousTurnPlaybackPresentation.safetyBlocked.isEnabled)
         XCTAssertEqual(
             ContinuousTurnPlaybackPresentation.playing.systemImage,
             "speaker.wave.2.fill"
         )
         XCTAssertEqual(
-            ContinuousTurnPlaybackPresentation.safetyBlocked.systemImage,
-            "speaker.slash.fill"
+            ContinuousTurnPlaybackPresentation.ready.systemImage,
+            "speaker.wave.2"
         )
     }
 
@@ -98,14 +93,27 @@ final class ContinuousTranscriptPresentationTests: XCTestCase {
         XCTAssertEqual(ParticipantLabels(.spanishSpain).swapLanguage, "Cambiar el idioma detectado")
     }
 
-    func testTalkLayoutMigratesIndependentlyOfManualLayout() throws {
-        let old = try JSONDecoder().decode(AppSettings.self, from: Data(#"{"layout":"heldPhone"}"#.utf8))
-        XCTAssertEqual(old.talkLayout, .faceToFace)
-        XCTAssertEqual(old.layout, .heldPhone)
-        var saved = old
-        saved.talkLayout = .heldPhone
-        let restored = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(saved))
-        XCTAssertEqual(restored.talkLayout, .heldPhone)
+    func testOnlyTheSelectedConversationCanKeepListening() {
+        var navigation = AppNavigation()
+        XCTAssertTrue(navigation.showsConversation)
+        navigation.splitPath = [.settings]
+        XCTAssertFalse(navigation.showsConversation)
+        navigation.selection = .talk
+        XCTAssertTrue(navigation.showsConversation)
+        navigation.talkPath = [.manual]
+        XCTAssertFalse(navigation.showsConversation)
+        navigation.selection = .history
+        navigation.splitPath = []
+        XCTAssertFalse(navigation.showsConversation)
+        navigation.selection = .split
+        XCTAssertTrue(navigation.showsConversation)
+    }
+
+    func testLegacyTalkTabPreferencePreservesManualLayout() throws {
+        let data = Data(#"{"talkLayout":"heldPhone","layout":"faceToFace","saveHistoryOnDevice":true}"#.utf8)
+        let settings = try JSONDecoder().decode(AppSettings.self, from: data)
+        XCTAssertEqual(settings.layout, .faceToFace)
+        XCTAssertTrue(settings.saveHistoryOnDevice)
     }
 
     @MainActor

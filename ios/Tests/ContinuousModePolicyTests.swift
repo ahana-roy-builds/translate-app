@@ -206,36 +206,6 @@ final class ContinuousModePolicyTests: XCTestCase {
         ))
     }
 
-    func testHindiBetaAutoSpeaksOrdinaryTurnsButNotEntityReviewTurns() {
-        let hindiPair = LanguagePair(traveler: .englishUS, local: .hindiIndia)
-        let establishedPair = LanguagePair(traveler: .englishUS, local: .spanishSpain)
-
-        XCTAssertTrue(ContinuousModePolicy.shouldSpeakTranslation(
-            wasEnabledAtBoundary: true,
-            isEnabledNow: true,
-            pair: hindiPair
-        ))
-        XCTAssertTrue(ContinuousModePolicy.shouldSpeakTranslation(
-            wasEnabledAtBoundary: true,
-            isEnabledNow: true,
-            pair: hindiPair,
-            requiresLanguageReview: true
-        ))
-        XCTAssertFalse(ContinuousModePolicy.shouldSpeakTranslation(
-            wasEnabledAtBoundary: true,
-            isEnabledNow: true,
-            pair: hindiPair,
-            requiresEntityReview: true
-        ))
-        XCTAssertTrue(ContinuousModePolicy.shouldSpeakTranslation(
-            wasEnabledAtBoundary: true,
-            isEnabledNow: true,
-            pair: establishedPair,
-            requiresLanguageReview: true,
-            requiresEntityReview: true
-        ))
-    }
-
     private func language(code: String) throws -> AppLanguage {
         try XCTUnwrap(
             AppLanguage.conversationLanguages.first(where: { $0.code == code }),
@@ -488,6 +458,31 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testMixedHindiTurnCommitsAndTranslatesTheWholeSentenceOnce() async throws {
+        let pair = LanguagePair(traveler: .englishUS, local: .hindiIndia)
+        let source = "आज मेरी client meeting है।"
+        let decision = try XCTUnwrap(ContinuousLanguageDecisionPolicy.decide(candidates: [
+            Self.candidate(text: "Client meeting", language: .englishUS),
+            Self.candidate(text: source, language: .hindiIndia)
+        ], pair: pair))
+        let range = CMTimeRange(start: .zero, duration: CMTime(value: 2, timescale: 1))
+        let harness = makeHarness(finishBatches: [], processBatches: [[.speechEnded(range: range, reason: .silence)]],
+                                  decisions: [decision], pair: pair, translations: ["I have a client meeting today."])
+        harness.settings.value.saveHistoryOnDevice = true
+        harness.coordinator.start(pair: pair)
+        defer { harness.coordinator.cancelSession() }
+        await assertEventually { harness.coordinator.state == .listening }
+        _ = try await harness.capture.emitBuffer()
+        await assertEventually { harness.coordinator.turns.count == 1 }
+        XCTAssertEqual(harness.translation.calls, [.init(text: source, speaker: .local, pair: pair)])
+        let turn = try XCTUnwrap(harness.coordinator.turns.first)
+        XCTAssertEqual(turn.sourceLocale, "hi-IN")
+        XCTAssertEqual(turn.targetLocale, "en-US")
+        XCTAssertEqual(turn.sourceText, source)
+        XCTAssertEqual(harness.history.conversations.first?.turns, [turn])
+    }
+
+    @MainActor
     func testHindiLanguageReviewTurnPersistsAndHonorsAutoSpeak() async {
         let range = CMTimeRange(
             start: .zero,
@@ -530,7 +525,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
     }
 
     @MainActor
-    func testHindiEntityMismatchTurnPersistsWithoutAutoSpeak() async {
+    func testHindiIndefiniteArticleTranslationPersistsAndAutoSpeaks() async {
         let range = CMTimeRange(
             start: .zero,
             duration: CMTime(seconds: 1, preferredTimescale: 1_000)
@@ -538,9 +533,9 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
         let pair = LanguagePair(traveler: .englishUS, local: .hindiIndia)
         let harness = makeHarness(
             finishBatches: [[.speechEnded(range: range, reason: .silence)]],
-            decisions: [Self.decision(text: "I take insulin")],
+            decisions: [Self.decision(text: "She cried at the sight of a needle.")],
             pair: pair,
-            translations: ["मैं इबुप्रोफेन लेता हूँ"]
+            translations: ["वह एक सुई देखकर रोई।"]
         )
         harness.settings.value.saveHistoryOnDevice = true
 
@@ -557,15 +552,15 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
 
         let turn = harness.coordinator.turns.first
         XCTAssertEqual(turn?.languageReviewStatus, .confident)
-        XCTAssertTrue(turn?.warnings.contains(.entityMismatch) == true)
-        XCTAssertTrue(harness.synthesis.spoken.isEmpty)
+        XCTAssertFalse(turn?.warnings.contains(.entityMismatch) == true)
+        XCTAssertEqual(harness.synthesis.spoken, [.init(text: "वह एक सुई देखकर रोई।", localeIdentifier: "hi-IN")])
         XCTAssertEqual(harness.history.conversations.count, 1)
         XCTAssertEqual(harness.history.conversations.first?.turns, harness.coordinator.turns)
         harness.coordinator.cancelSession()
     }
 
     @MainActor
-    func testHindiPreservedCriticalEntityRequiresReviewBeforeSpeaking() async {
+    func testHindiTurnWithMatchingDetailsAutoSpeaks() async {
         let range = CMTimeRange(
             start: .zero,
             duration: CMTime(seconds: 1, preferredTimescale: 1_000)
@@ -593,7 +588,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
         let turn = harness.coordinator.turns.first
         XCTAssertEqual(turn?.languageReviewStatus, .confident)
         XCTAssertFalse(turn?.warnings.contains(.entityMismatch) == true)
-        XCTAssertTrue(harness.synthesis.spoken.isEmpty)
+        XCTAssertEqual(harness.synthesis.spoken, [.init(text: "मैं इंसुलिन लेता हूँ", localeIdentifier: "hi-IN")])
         XCTAssertEqual(harness.history.conversations.first?.turns, harness.coordinator.turns)
         harness.coordinator.cancelSession()
     }
@@ -912,7 +907,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
     }
 
     @MainActor
-    func testEstablishedPairEntityMismatchCannotBeReplayed() async {
+    func testSpanishTurnWithDifferentDetailsCanBeReplayed() async {
         let range = CMTimeRange(
             start: .zero,
             duration: CMTime(seconds: 1, preferredTimescale: 1_000)
@@ -923,9 +918,9 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
         )
         let harness = makeHarness(
             finishBatches: [[.speechEnded(range: range, reason: .silence)]],
-            decisions: [Self.decision(text: "I take insulin")],
+            decisions: [Self.decision(text: "Meet me at 5")],
             pair: pair,
-            translations: ["Tomo ibuprofeno"]
+            translations: ["Nos vemos a las seis"]
         )
 
         harness.coordinator.start(pair: pair)
@@ -938,13 +933,14 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
         guard let turn = harness.coordinator.turns.first else {
             return XCTFail("Expected a committed turn.")
         }
-        XCTAssertTrue(turn.warnings.contains(.entityMismatch))
+        XCTAssertFalse(turn.warnings.contains(.entityMismatch))
 
-        XCTAssertFalse(harness.coordinator.canReplayTranslation(for: turn.id))
+        XCTAssertTrue(harness.coordinator.canReplayTranslation(for: turn.id))
         harness.coordinator.replayTranslation(for: turn.id)
-        await Task.yield()
-
-        XCTAssertTrue(harness.synthesis.spoken.isEmpty)
+        await assertEventually {
+            harness.synthesis.spoken == [.init(text: "Nos vemos a las seis", localeIdentifier: "es-ES")]
+                && harness.coordinator.state == .paused(.user)
+        }
         XCTAssertNil(harness.coordinator.reviewedPlaybackTurnID)
         XCTAssertEqual(harness.coordinator.state, .paused(.user))
         harness.coordinator.cancelSession()
@@ -1132,7 +1128,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
     }
 
     @MainActor
-    func testEntityMismatchCannotBeReplayed() async {
+    func testHindiIndefiniteArticleCanBeReplayedManually() async {
         let range = CMTimeRange(
             start: .zero,
             duration: CMTime(seconds: 1, preferredTimescale: 1_000)
@@ -1140,9 +1136,9 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
         let pair = LanguagePair(traveler: .englishUS, local: .hindiIndia)
         let harness = makeHarness(
             finishBatches: [[.speechEnded(range: range, reason: .silence)]],
-            decisions: [Self.decision(text: "I take insulin")],
+            decisions: [Self.decision(text: "a needle")],
             pair: pair,
-            translations: ["मैं इबुप्रोफेन लेता हूँ"]
+            translations: ["एक सुई"]
         )
 
         harness.coordinator.start(pair: pair)
@@ -1154,15 +1150,18 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
                 && harness.coordinator.turns.count == 1
         }
         XCTAssertTrue(paused)
-        guard let turnID = harness.coordinator.turns.first?.id else {
-            return XCTFail("Expected a persisted Hindi turn.")
+        guard var turn = harness.coordinator.turns.first else {
+            return XCTFail("Expected a committed Hindi turn.")
         }
 
-        XCTAssertFalse(harness.coordinator.canReplayTranslation(for: turnID))
-        harness.coordinator.replayTranslation(for: turnID)
-        await Task.yield()
-        XCTAssertTrue(harness.synthesis.spoken.isEmpty)
-        XCTAssertNil(harness.coordinator.reviewedPlaybackTurnID)
+        // Older builds saved the mismatch flag on otherwise playable turns.
+        turn.warnings.insert(.entityMismatch)
+        XCTAssertTrue(harness.coordinator.canReplayTranslation(for: turn))
+        harness.coordinator.replayTranslation(for: turn.id)
+        await assertEventually {
+            harness.synthesis.spoken == [.init(text: "एक सुई", localeIdentifier: "hi-IN")]
+                && harness.coordinator.reviewedPlaybackTurnID == nil
+        }
         harness.coordinator.cancelSession()
     }
 
@@ -1575,21 +1574,32 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
 
     @MainActor
     func testInstalledAppleModelsTranslateRecordedPausesOnDevice() async throws {
+        try await verifyRecordedExchange(pair: LanguagePair(traveler: .englishUS, local: .spanishSpain),
+                                         files: ["SpokenTurn", "SpokenReply", "SpokenTurn"])
+    }
+
+    @MainActor
+    func testInstalledModelsTranslateMixedSpeechAtPauseOnDevice() async throws {
+        try await verifyRecordedExchange(pair: LanguagePair(traveler: .hindiIndia, local: .englishUS),
+                                         files: ["MixedHindiOffice", "MixedEnglishQuestion", "MixedHindiLaptop"])
+    }
+
+    @MainActor
+    private func verifyRecordedExchange(pair: LanguagePair, files: [String]) async throws {
 #if targetEnvironment(simulator)
         throw XCTSkip("Requires installed physical-device speech and translation models.")
 #else
-        let pair = LanguagePair(traveler: .englishUS, local: .spanishSpain)
         let speech = AppleSpeechRecognitionEngine()
         let listen = await speech.continuousAssetReadiness(pair: pair)
-        try XCTSkipUnless(listen == .ready, "English/Spanish device speech assets: \(listen).")
+        try XCTSkipUnless(listen == .ready, "Selected device speech assets: \(listen).")
         // Probe the same installed-only strategy as Talk. Inventory can report
         // downloadRequired on launch even when these sessions can translate.
         let translation = AppleTranslationEngine(strategy: .lowLatency)
         do {
-            _ = try await translation.translate("Good morning", source: pair.traveler.language, target: pair.local.language)
-            _ = try await translation.translate("Gracias", source: pair.local.language, target: pair.traveler.language)
+            _ = try await translation.translate(pair.traveler.nativeName, source: pair.traveler.language, target: pair.local.language)
+            _ = try await translation.translate(pair.local.nativeName, source: pair.local.language, target: pair.traveler.language)
         } catch TranslationError.notInstalled {
-            throw XCTSkip("Install the English/Spanish translation languages on this iPhone.")
+            throw XCTSkip("Install the selected translation languages on this iPhone.")
         }
         for side in [SpeakerSide.traveler, .local] {
             let readiness = await translation.availability(source: pair.source(for: side).language,
@@ -1622,7 +1632,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
         }
         try await waitFor { coordinator.state == .listening }
         var sample: AVAudioFramePosition = 0
-        for (index, name) in ["SpokenTurn", "SpokenReply", "SpokenTurn"].enumerated() {
+        for (index, name) in files.enumerated() {
             // Exercise a continuously open stream and automatic restart for playback.
             coordinator.speakTranslations = voicesReady && index != 0
             let url = try XCTUnwrap(Bundle(for: Self.self).url(forResource: name, withExtension: "wav"))
@@ -1643,7 +1653,8 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
             }
             defer { drafts.cancel(); pending.cancel(); commits.cancel() }
             // Allow enough continuous audio for Apple's progressive results on a cold device.
-            var remainingRepeats = index == 2 ? 2 : 0
+            let sustained = index == 2 && !pair.isEnglishHindi
+            var remainingRepeats = sustained ? 2 : 0
             var speechFileEnded = started
             for _ in 0..<500 {
                 // AnalyzerInput retains the buffer until the system consumes it.
@@ -1669,13 +1680,23 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
             }
             try await waitFor { coordinator.turns.count == index + 1 && coordinator.state == .listening && harness.capture.isActive }
             let firstDraft = try XCTUnwrap(firstDraftAt ?? firstPendingAt, "Turn must show source words before translation")
-            if index == 2 { XCTAssertNotNil(firstDraftAt, "Sustained speech must show words while the utterance is open") }
+            if sustained { XCTAssertNotNil(firstDraftAt, "Sustained speech must show words while the utterance is open") }
             let commit = try XCTUnwrap(committedAt)
             XCTAssertLessThan(firstDraft, commit)
             print("Turn \(index + 1) first draft \(started.duration(to: firstDraft)), last speech buffer to commit \(speechFileEnded.duration(to: commit))")
             let turn = coordinator.turns[index]
             XCTAssertEqual(turn.speaker, index == 1 ? .local : .traveler)
             XCTAssertFalse(turn.translatedText.isEmpty)
+            if pair.isEnglishHindi {
+                let terms = [["office", "meeting"], ["meeting"], ["laptop"]][index]
+                for term in terms {
+                    XCTAssertTrue(turn.sourceText.localizedCaseInsensitiveContains(term), turn.sourceText)
+                    if turn.targetLocale == AppLanguage.englishUS.code {
+                        XCTAssertTrue(turn.translatedText.localizedCaseInsensitiveContains(term), turn.translatedText)
+                    }
+                }
+                print("Mixed-language synthetic fixture \(name): \(turn.sourceText) → \(turn.translatedText)")
+            }
             print("Device turn \(index + 1), Auto Speak \(coordinator.speakTranslations), listening \(speechFileEnded.duration(to: .now)) after the last speech buffer")
         }
         let completedTurns = coordinator.turns
@@ -1696,7 +1717,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.turns, completedTurns)
         coordinator.endSession()
         try await waitFor { coordinator.state == .ended }
-        XCTAssertEqual(coordinator.turns.count, 3)
+        XCTAssertEqual(coordinator.turns.count, files.count)
 #endif
     }
 
@@ -1777,7 +1798,10 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
         XCTAssertNil(h.coordinator.draft)
         _ = try await h.capture.emitBuffer()
         XCTAssertEqual(h.coordinator.draft, reply)
-        h.settings.value.talkLayout = .heldPhone
+        var navigation = AppNavigation()
+        XCTAssertEqual(navigation.selection, .split)
+        navigation.selection = .talk
+        h.coordinator.handleSceneActivity(isActive: navigation.showsConversation)
         XCTAssertTrue(h.coordinator.hasActiveSpeech)
         let revision = ContinuousDraft(language: .englishUS, text: "Where is the station", confidence: 0.9, score: 0.9)
         h.recognition.onClosingRevision?(revision)

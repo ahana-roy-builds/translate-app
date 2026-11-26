@@ -488,7 +488,6 @@ final class ContinuousConversationCoordinator: ObservableObject {
 
         guard ContinuousModePolicy.supports(pair),
               turn.route == .local,
-              !turn.warnings.contains(.entityMismatch),
               !turn.warnings.contains(.unresolvedSpeaker),
               let sourceLanguage = AppLanguage.allCases.first(where: {
                   $0.code == turn.sourceLocale
@@ -716,11 +715,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
                 }
                 return shouldPauseForPlayback
             }
-            let speakTranslation = ContinuousModePolicy.shouldSpeakTranslation(
-                wasEnabledAtBoundary: speakTranslations,
-                isEnabledNow: true,
-                pair: pair
-            )
+            let speakTranslation = speakTranslations
             let sequence = nextSequence
             pendingDrafts[sequence] = recognition.takeDraft(in: range) { [weak self] revision in
                 guard let self, self.sessionGeneration == generation else { return }
@@ -885,17 +880,13 @@ final class ContinuousConversationCoordinator: ObservableObject {
             translatedText,
             field: "translation"
         )
-        let integrity = extractor.compare(
-            source: sourceText,
-            translation: boundedTranslation,
-            sourceLocale: pair.source(for: speaker).locale,
-            targetLocale: pair.target(for: speaker).locale,
-            referenceDate: pending.createdAt,
-            timeZone: .current
+        let entities = extractor.extract(
+            from: sourceText,
+            locale: pair.source(for: speaker).locale,
+            referenceDate: pending.createdAt
         )
         var warnings = Set<TranslationWarning>()
         if decision.needsReview { warnings.insert(.uncertainRecognition) }
-        if integrity.hasMismatch { warnings.insert(.entityMismatch) }
 
         let turn = ConversationTurn(
             id: UUID(),
@@ -907,7 +898,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
             translatedText: boundedTranslation,
             userEdited: false,
             createdAt: pending.createdAt,
-            entities: integrity.source,
+            entities: entities,
             route: .local,
             recognitionConfidence: selected.confidence,
             warnings: warnings,
@@ -921,11 +912,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
 
         guard ContinuousModePolicy.shouldSpeakTranslation(
             wasEnabledAtBoundary: pending.speakTranslation,
-            isEnabledNow: speakTranslations,
-            pair: pair,
-            requiresLanguageReview: decision.needsReview,
-            requiresEntityReview: integrity.requiresConfirmation,
-            hasEntityMismatch: integrity.hasMismatch
+            isEnabledNow: speakTranslations
         ), !isEnding else {
             return
         }
@@ -982,19 +969,15 @@ final class ContinuousConversationCoordinator: ObservableObject {
             translatedText,
             field: "translation"
         )
-        let integrity = extractor.compare(
-            source: sourceText,
-            translation: boundedTranslation,
-            sourceLocale: pair.source(for: correctedSpeaker).locale,
-            targetLocale: pair.target(for: correctedSpeaker).locale,
-            referenceDate: prior.createdAt,
-            timeZone: .current
+        let entities = extractor.extract(
+            from: sourceText,
+            locale: pair.source(for: correctedSpeaker).locale,
+            referenceDate: prior.createdAt
         )
         var warnings = prior.warnings
         warnings.remove(.unresolvedSpeaker)
         warnings.remove(.uncertainRecognition)
         warnings.remove(.entityMismatch)
-        if integrity.hasMismatch { warnings.insert(.entityMismatch) }
 
         turns[index] = ConversationTurn(
             id: prior.id,
@@ -1006,7 +989,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
             translatedText: boundedTranslation,
             userEdited: prior.warnings.contains(.unresolvedSpeaker) && alternate.text != prior.sourceText && alternate.text != prior.alternateTranscript?.text,
             createdAt: prior.createdAt,
-            entities: integrity.source,
+            entities: entities,
             route: .local,
             recognitionConfidence: alternate.recognitionConfidence,
             warnings: warnings,

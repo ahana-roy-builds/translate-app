@@ -102,8 +102,8 @@ def compare(log, baseline, labels, pairs=None):
             totals["replayRequests"] += 1
             correct_voice = row.get("voice", "").replace("_", "-") == partner and row.get("sameText") == "true"
             totals["correctReplay"] += correct_voice
-            safety_hold = row.get("entityMismatch") == "true" or row.get("unresolvedSpeaker") == "true"
-            if (safety_hold and row.get("error") != "ineligible") or (not safety_hold and not correct_voice):
+            unresolved = row.get("unresolvedSpeaker") == "true"
+            if (unresolved and row.get("error") != "ineligible") or (not unresolved and not correct_voice):
                 wrong_playback.append(row)
         if kind != "spoken":
             continue

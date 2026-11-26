@@ -77,14 +77,11 @@ enum ContinuousTurnPlaybackPresentation: Equatable {
     case ready
     case playing
     case temporarilyUnavailable
-    case safetyBlocked
 
     static func resolve(
         isActive: Bool,
-        canReplay: Bool,
-        isSafetyBlocked: Bool
+        canReplay: Bool
     ) -> ContinuousTurnPlaybackPresentation {
-        if isSafetyBlocked { return .safetyBlocked }
         if isActive { return .playing }
         return canReplay ? .ready : .temporarilyUnavailable
     }
@@ -95,8 +92,6 @@ enum ContinuousTurnPlaybackPresentation: Equatable {
             "speaker.wave.2"
         case .playing:
             "speaker.wave.2.fill"
-        case .safetyBlocked:
-            "speaker.slash.fill"
         }
     }
 
@@ -109,8 +104,9 @@ struct ContinuousConversationView: View {
     @ObservedObject var subscription: SubscriptionManager
     @ObservedObject var network: NetworkStatus
     @ObservedObject var languagePacks: LanguagePackManager
-    @ObservedObject var conversation: ConversationOrchestrator
     let capabilities: AppCapabilities
+    let layout: ConversationLayout
+    @Binding var confirmedSetupNeeded: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
@@ -119,7 +115,6 @@ struct ContinuousConversationView: View {
     @State private var showVoiceDetails = false
     @State private var showSafetyInformation = false
     @State private var recheckBeforeStarting = false
-    @State private var confirmedSetupNeeded = false
     @AccessibilityFocusState private var statusFocused: Bool
 
     var body: some View {
@@ -153,22 +148,11 @@ struct ContinuousConversationView: View {
         .background(TranslatorTheme.canvas)
         .navigationTitle("Speak Duet")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(coordinator.isRunning && !showsWaveLayout ? .hidden : .visible, for: .tabBar)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
-                Button {
-                    settings.value.talkLayout = settings.value.talkLayout == .faceToFace ? .heldPhone : .faceToFace
-                } label: {
-                    Image(systemName: settings.value.talkLayout == .faceToFace ? "iphone" : "rectangle.split.2x1")
-                }
-                .accessibilityLabel(settings.value.talkLayout == .faceToFace ? "Switch to held phone" : "Switch to face to face")
-                .accessibilityIdentifier("talk.switch-layout")
                 speakerPreferenceButton
-
-                if showsWaveLayout || !coordinator.isRunning {
-                    overflowMenu
-                        .disabled(coordinator.isReviewedPlaybackActive)
-                }
+                overflowMenu
+                    .disabled(coordinator.isReviewedPlaybackActive)
             }
         }
         .sheet(item: $languagePickerSide) { side in
@@ -180,7 +164,7 @@ struct ContinuousConversationView: View {
         .task {
             syncSpokenTranslationPreference()
             guard scenePhase == .active else { return }
-            await languagePacks.check(settings.value.pair)
+            await languagePacks.checkIfNeeded(settings.value.pair)
         }
         .task(id: recheckBeforeStarting) {
             guard recheckBeforeStarting else { return }
@@ -197,9 +181,6 @@ struct ContinuousConversationView: View {
         }
         .onDisappear {
             recheckBeforeStarting = false
-            if showsWaveLayout && coordinator.isSessionActive {
-                coordinator.handleSceneActivity(isActive: false)
-            }
         }
         .onChange(of: settings.value.pair) { _, _ in
             bottomSeat = .traveler
@@ -207,13 +188,8 @@ struct ContinuousConversationView: View {
         }
         .onChange(of: settings.value.continuousTranslationStrategy) { _, _ in resetStartCheck() }
         .environmentObject(coordinator)
-        .onAppear {
-            coordinator.handleSceneActivity(isActive: scenePhase == .active)
-            syncSpokenTranslationPreference()
-        }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { resetStartCheck() }
-            coordinator.handleSceneActivity(isActive: phase == .active)
         }
         .onChange(of: coordinator.state) { oldState, newState in
             guard shouldAnnounceStatusChange(from: oldState, to: newState) else {
@@ -231,7 +207,7 @@ struct ContinuousConversationView: View {
     }
 
     private var showsWaveLayout: Bool {
-        settings.value.talkLayout == .faceToFace
+        layout == .faceToFace
     }
 
     private var visibleDraft: ContinuousDraft? {
@@ -284,7 +260,7 @@ struct ContinuousConversationView: View {
         }
         .multilineTextAlignment(.center)
         .padding(.horizontal, 16)
-        .padding(.vertical, 7)
+        .padding(.vertical, 5)
     }
 
     private var wavePhase: TalkWavePhase {
@@ -322,15 +298,11 @@ struct ContinuousConversationView: View {
     private var languageSetupLink: some View {
         Group {
             if languagePacks.readiness.listenPair == .unavailable && canStartManualConversation {
-                NavigationLink {
-                    ConversationView(orchestrator: conversation, settings: settings, capabilities: capabilities)
-                } label: {
+                NavigationLink(value: TalkDestination.manual) {
                     Label("Use manual conversation", systemImage: "mic.badge.plus")
                 }
             } else {
-                NavigationLink {
-                    LanguagePacksView(manager: languagePacks, settings: settings)
-                } label: {
+                NavigationLink(value: TalkDestination.languagePacks) {
                     Label("Set up languages", systemImage: "arrow.down.circle")
                 }
             }
@@ -588,23 +560,12 @@ struct ContinuousConversationView: View {
                 } label: {
                     Label("Use my default language", systemImage: "person.crop.circle")
                 }
-                NavigationLink {
-                    ConversationView(
-                        orchestrator: conversation,
-                        settings: settings,
-                        capabilities: capabilities
-                    )
-                } label: {
+                NavigationLink(value: TalkDestination.manual) {
                     Label("Manual Conversation", systemImage: "mic.badge.plus")
                 }
                 .disabled(!canStartManualConversation)
 
-                NavigationLink {
-                    LanguagePacksView(
-                        manager: languagePacks,
-                        settings: settings
-                    )
-                } label: {
+                NavigationLink(value: TalkDestination.languagePacks) {
                     Label("Manage Language Packs", systemImage: "square.stack.3d.up")
                 }
 
@@ -613,6 +574,9 @@ struct ContinuousConversationView: View {
                 } label: {
                     Label("Privacy & Safety", systemImage: "hand.raised")
                 }
+            }
+            NavigationLink(value: TalkDestination.settings) {
+                Label("Settings", systemImage: "gearshape")
             }
         } label: {
             Image(systemName: "ellipsis.circle")
@@ -1306,24 +1270,6 @@ struct TalkTurnReview: View {
             }
         }
 
-        if turn.warnings.contains(.entityMismatch) {
-            Label(
-                ParticipantLabels(readerLanguage).mismatch,
-                systemImage: "exclamationmark.shield.fill"
-            )
-            .font(.caption)
-            .foregroundStyle(.orange)
-        }
-
-        if requiresHindiEntityReview {
-            Label(
-                ParticipantLabels(readerLanguage).reviewBeforePlaying,
-                systemImage: "speaker.slash.fill"
-            )
-            .font(.caption)
-            .foregroundStyle(.orange)
-        }
-
         if turn.warnings.contains(.unresolvedSpeaker) && coordinator.canResolveSpeaker {
             Text(ParticipantLabels(readerLanguage).chooseSpeaker).font(.caption.bold())
             let options = [turn.sourceLocale, turn.targetLocale].compactMap { code in
@@ -1364,17 +1310,6 @@ struct TalkTurnReview: View {
         }
     }
 
-    private var requiresHindiEntityReview: Bool {
-        isHindiBetaTurn
-            && !turn.entities.isEmpty
-            && !turn.warnings.contains(.entityMismatch)
-    }
-
-    private var isHindiBetaTurn: Bool {
-        turn.sourceLocale == AppLanguage.hindiIndia.code
-            || turn.targetLocale == AppLanguage.hindiIndia.code
-    }
-
 }
 
 struct TalkReplayButton: View {
@@ -1386,8 +1321,7 @@ struct TalkReplayButton: View {
     private var playbackPresentation: ContinuousTurnPlaybackPresentation {
         .resolve(
             isActive: isReviewedPlaybackActive,
-            canReplay: canReplayTranslation,
-            isSafetyBlocked: turn.warnings.contains(.entityMismatch)
+            canReplay: canReplayTranslation
         )
     }
 
@@ -1418,8 +1352,6 @@ struct TalkReplayButton: View {
             TranslatorTheme.accent
         case .temporarilyUnavailable:
             .secondary
-        case .safetyBlocked:
-            .orange
         }
     }
 
@@ -1430,8 +1362,6 @@ struct TalkReplayButton: View {
             "Play \(target) translation"
         case .playing:
             "Playing \(target) translation"
-        case .safetyBlocked:
-            "Playback unavailable for \(target) translation"
         }
     }
 
@@ -1443,8 +1373,6 @@ struct TalkReplayButton: View {
             "Translation playback is in progress."
         case .temporarilyUnavailable:
             "Playback is temporarily unavailable."
-        case .safetyBlocked:
-            "Important details may not match."
         }
     }
 }

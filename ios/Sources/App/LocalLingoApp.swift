@@ -16,7 +16,6 @@ struct LocalLingoApp: App {
             .onChange(of: scenePhase) { _, phase in
                 let isActive = phase == .active
                 container.conversation.handleSceneActivity(isActive: isActive)
-                container.continuousConversation.handleSceneActivity(isActive: isActive)
                 if isActive {
                     container.access.refresh()
                     Task {

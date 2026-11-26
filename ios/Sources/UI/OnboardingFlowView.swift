@@ -25,7 +25,8 @@ struct OnboardingFlowView: View {
                         .accessibilityLabel("Setup step \(step + 1) of 4")
                     switch step {
                     case 0:
-                        welcomeArtwork
+                        SpeakDuetLogo(height: 150)
+                            .frame(maxWidth: .infinity)
                         Text("Speak two languages. Have one conversation")
                             .font(dynamicTypeSize.isAccessibilitySize ? .title.bold() : .largeTitle.bold())
                         Text("Tap the mic once and take turns speaking. Speak Duet translates when you pause.")
@@ -86,31 +87,6 @@ struct OnboardingFlowView: View {
                 languagePacks.cancelInstallation()
             }
         }
-    }
-
-    private var welcomeArtwork: some View {
-        ZStack {
-            HStack(spacing: -20) {
-                greeting("Hello", tilt: -9)
-                greeting("Hola", tilt: 9).offset(y: 16)
-            }
-            .dynamicTypeSize(.medium)
-        }
-        .frame(maxWidth: .infinity, minHeight: 150)
-        .background(TranslatorTheme.ribbon, in: RoundedRectangle(cornerRadius: 22))
-        .accessibilityHidden(true)
-    }
-
-    private func greeting(_ title: String, tilt: Double) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Image(systemName: "waveform").font(.subheadline.bold())
-                .foregroundStyle(TranslatorTheme.accent)
-            Text(title).font(.title.bold()).foregroundStyle(TranslatorTheme.ink)
-        }
-        .frame(width: 94, alignment: .leading)
-        .padding(12)
-        .relayCard()
-        .rotationEffect(.degrees(tilt))
     }
 
     private func pairLabel(_ pair: LanguagePair) -> some View {

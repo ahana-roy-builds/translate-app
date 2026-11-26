@@ -11,7 +11,7 @@ struct SpeakDuetSubscriptionView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
-                    Image(systemName: "waveform.and.mic").font(.system(size: 44)).foregroundStyle(TranslatorTheme.accent)
+                    SpeakDuetLogo(height: 96)
                     Text("Keep the conversation going").font(.largeTitle.bold()).multilineTextAlignment(.center)
                     Text("One subscription unlocks all Speak Duet translation: continuous conversations, manual turns, and typed input. Conversation processing stays on your iPhone.")
                         .multilineTextAlignment(.center).foregroundStyle(.secondary)

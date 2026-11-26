@@ -14,21 +14,22 @@ final class OnboardingJourneyTests: XCTestCase {
         XCTAssertTrue(app.buttons["Download and start"].waitForExistence(timeout: 5))
         attach(app, named: "Offline preparation")
         tap("onboarding.continue", in: app)
-        XCTAssertTrue(app.tabBars.buttons["Talk"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.tabBars.buttons["Conversation Mode"].waitForExistence(timeout: 10))
         attach(app, named: "Speak Duet Talk")
-        app.tabBars.buttons["Settings"].tap()
+        openSettings(in: app)
         XCTAssertTrue(app.staticTexts["Default language"].waitForExistence(timeout: 5))
         let appearance = app.segmentedControls["settings.appearance"]
         XCTAssertTrue(appearance.buttons["Automatic"].isSelected)
         appearance.buttons["Dark"].tap()
         XCTAssertTrue(appearance.buttons["Dark"].isSelected)
         attach(app, named: "Relay dark settings")
-        app.tabBars.buttons["Talk"].tap()
+        app.navigationBars["Settings"].buttons.element(boundBy: 0).tap()
+        app.tabBars.buttons["Conversation Mode"].tap()
         tap("talk.partner-language", in: app)
         XCTAssertTrue(app.buttons["Done"].waitForExistence(timeout: 5))
         attach(app, named: "Relay dark language picker")
         app.buttons["Done"].tap()
-        app.tabBars.buttons["Settings"].tap()
+        openSettings(in: app)
         XCTAssertTrue(appearance.buttons["Dark"].isSelected)
         appearance.buttons["Light"].tap()
         XCTAssertTrue(appearance.buttons["Light"].isSelected)
@@ -63,6 +64,9 @@ final class OnboardingJourneyTests: XCTestCase {
         XCTAssertLessThan(swap.frame.maxY, top.frame.midY)
         XCTAssertLessThan(top.frame.midY, mic.frame.midY)
         XCTAssertLessThan(mic.frame.midY, bottom.frame.midY)
+        let status = app.staticTexts["talk.session-status"]
+        XCTAssertLessThan(mic.frame.minY - top.frame.maxY, 28)
+        XCTAssertLessThan(bottom.frame.minY - status.frame.maxY, 28)
         XCTAssertEqual(bottom.label, "English")
         XCTAssertEqual(top.label, "Español")
         tap("talk.swap-languages", in: app)
@@ -73,10 +77,23 @@ final class OnboardingJourneyTests: XCTestCase {
         tap("talk.swap-languages", in: app)
         XCTAssertFalse(app.buttons["Subscription"].exists)
         attach(app, named: "Wave ribbon ready")
-        tap("talk.switch-layout", in: app)
+        let talk = app.tabBars.buttons["Conversation Mode"]
+        let split = app.tabBars.buttons["Face to Face"]
+        let history = app.tabBars.buttons["History"]
+        XCTAssertTrue(split.isSelected)
+        XCTAssertLessThan(talk.frame.midX, split.frame.midX)
+        XCTAssertLessThan(split.frame.midX, history.frame.midX)
+        XCTAssertFalse(app.tabBars.buttons["Settings"].exists)
+        talk.tap()
+        XCTAssertTrue(talk.isSelected)
+        XCTAssertFalse(top.exists)
         XCTAssertEqual(partner.frame.midY, owner.frame.midY, accuracy: 4)
-        tap("talk.switch-layout", in: app)
-        XCTAssertTrue(top.exists)
+        history.tap()
+        XCTAssertTrue(app.navigationBars["History"].waitForExistence(timeout: 5))
+        openSettings(in: app)
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
+        split.tap()
+        XCTAssertTrue(top.waitForExistence(timeout: 5))
         tap("talk.primary-microphone", in: app)
         XCTAssertTrue(app.staticTexts["Keep the conversation going"].waitForExistence(timeout: 5))
     }
@@ -104,12 +121,17 @@ final class OnboardingJourneyTests: XCTestCase {
         XCTAssertTrue(app.buttons["talk.traveler-language"].label.contains("Hindi"))
         let hindi = app.staticTexts["talk.seat-language.local"]
         XCTAssertGreaterThan(hindi.frame.midY, mic.frame.midY)
+        app.tabBars.buttons["Conversation Mode"].tap()
+        XCTAssertTrue(mic.wait(for: \.label, toEqual: "Pause listening", timeout: 5))
+        app.tabBars.buttons["Face to Face"].tap()
+        XCTAssertTrue(mic.wait(for: \.label, toEqual: "Pause listening", timeout: 5))
+        XCTAssertGreaterThan(hindi.frame.midY, mic.frame.midY)
         mic.tap()
         XCTAssertTrue(mic.wait(for: \.label, toEqual: "Resume listening", timeout: 10))
         mic.tap()
         XCTAssertTrue(mic.wait(for: \.label, toEqual: "Pause listening", timeout: 15))
         app.tabBars.buttons["History"].tap()
-        app.tabBars.buttons["Talk"].tap()
+        app.tabBars.buttons["Face to Face"].tap()
         XCTAssertTrue(mic.wait(for: \.label, toEqual: "Resume listening", timeout: 10))
         mic.tap()
         XCTAssertTrue(mic.wait(for: \.label, toEqual: "Pause listening", timeout: 15))
@@ -138,7 +160,7 @@ final class OnboardingJourneyTests: XCTestCase {
         let owner = app.buttons["talk.traveler-language"], partner = app.buttons["talk.partner-language"]
         XCTAssertEqual(partner.frame.midY, owner.frame.midY, accuracy: 4)
         XCTAssertFalse(app.buttons["Download and Verify"].exists)
-        tap("talk.switch-layout", in: app)
+        app.tabBars.buttons["Conversation Mode"].tap()
         XCTAssertEqual(partner.frame.midY, owner.frame.midY, accuracy: 4)
         XCTAssertFalse(app.buttons["Download and Verify"].exists)
         XCTAssertFalse(app.navigationBars["Language Packs"].exists)
@@ -188,7 +210,7 @@ final class OnboardingJourneyTests: XCTestCase {
                    "onboarding.language.es-ES", "onboarding.continue", "onboarding.continue"] {
             tap(id, in: app)
         }
-        app.tabBars.buttons["Settings"].tap()
+        openSettings(in: app)
         for _ in 0..<2 {
             tap("settings.languagePacks", in: app)
             let spanish = app.buttons["languagePacks.es-ES"].firstMatch
@@ -212,7 +234,7 @@ final class OnboardingJourneyTests: XCTestCase {
                    "onboarding.language.es-ES", "onboarding.continue", "onboarding.continue"] {
             tap(id, in: app)
         }
-        app.tabBars.buttons["Settings"].tap()
+        openSettings(in: app)
         tap("settings.languagePacks", in: app)
         let hindi = app.buttons["languagePacks.hi-IN"].firstMatch
         scrollTo(hindi, in: app)
@@ -236,6 +258,11 @@ final class OnboardingJourneyTests: XCTestCase {
         tap("onboarding.continue", in: app)
         XCTAssertTrue(app.staticTexts["What language does the other person speak?"].waitForExistence(timeout: 5))
         attach(app, named: "Language selection accessibility XXXL")
+    }
+
+    private func openSettings(in app: XCUIApplication) {
+        tap("More options", in: app)
+        tap("Settings", in: app)
     }
 
     private func tap(_ identifier: String, in app: XCUIApplication) {

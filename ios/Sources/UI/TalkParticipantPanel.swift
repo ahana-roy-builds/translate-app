@@ -55,7 +55,8 @@ struct TalkParticipantPanel: View {
                 }
                 .padding(.vertical, 4)
             }
-            .defaultScrollAnchor(.center, for: .alignment)
+            // The top edge of each reader's panel faces the center mic after rotation.
+            .defaultScrollAnchor(.top, for: .alignment)
             .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: turns.last?.id)
             .onScrollPhaseChange { _, newPhase, context in
                 if newPhase == .interacting {
@@ -87,7 +88,7 @@ struct TalkParticipantPanel: View {
             }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 5)
+        .padding(.vertical, 3)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(TranslatorTheme.canvas)
         .accessibilityElement(children: .contain)
@@ -161,8 +162,6 @@ struct ParticipantLabels {
     let placeholder: String
     let checkLanguage: String
     let swapLanguage: String
-    let mismatch: String
-    let reviewBeforePlaying: String
 
     init(_ language: AppLanguage) {
         chooseSpeaker = switch language {
@@ -187,16 +186,16 @@ struct ParticipantLabels {
         case .koreanSouthKorea: ("내가 한 말", "번역", "여기에 대화가 표시됩니다.")
         case .hindiIndia: ("आपने कहा", "अनुवाद", "आपकी बातचीत यहाँ दिखाई देगी।")
         }
-        (checkLanguage, swapLanguage, mismatch, reviewBeforePlaying) = switch language {
-        case .englishUS: ("Check detected language", "Swap detected language", "Important details may not match", "Review important details before playing this translation")
-        case .spanishSpain: ("Revisa el idioma detectado", "Cambiar el idioma detectado", "Puede que algunos datos importantes no coincidan", "Revisa los datos importantes antes de reproducir la traducción")
-        case .frenchFrance: ("Vérifiez la langue détectée", "Changer la langue détectée", "Certains détails importants peuvent différer", "Vérifiez les détails importants avant d’écouter la traduction")
-        case .germanGermany: ("Erkannte Sprache prüfen", "Erkannte Sprache wechseln", "Wichtige Angaben können abweichen", "Prüfen Sie wichtige Angaben vor dem Abspielen der Übersetzung")
-        case .italianItaly: ("Controlla la lingua rilevata", "Cambia la lingua rilevata", "Alcuni dettagli importanti potrebbero non corrispondere", "Controlla i dettagli importanti prima di ascoltare la traduzione")
-        case .portugueseBrazil: ("Confira o idioma detectado", "Trocar o idioma detectado", "Alguns detalhes importantes podem estar diferentes", "Confira os detalhes importantes antes de ouvir a tradução")
-        case .japaneseJapan: ("認識された言語を確認", "認識された言語を切り替える", "重要な情報が一致しない可能性があります", "翻訳を再生する前に重要な情報を確認してください")
-        case .koreanSouthKorea: ("감지된 언어 확인", "감지된 언어 변경", "중요한 정보가 일치하지 않을 수 있습니다", "번역을 재생하기 전에 중요한 정보를 확인하세요")
-        case .hindiIndia: ("पहचानी गई भाषा जाँचें", "पहचानी गई भाषा बदलें", "ज़रूरी जानकारी अलग हो सकती है", "अनुवाद सुनने से पहले ज़रूरी जानकारी जाँचें")
+        (checkLanguage, swapLanguage) = switch language {
+        case .englishUS: ("Check detected language", "Swap detected language")
+        case .spanishSpain: ("Revisa el idioma detectado", "Cambiar el idioma detectado")
+        case .frenchFrance: ("Vérifiez la langue détectée", "Changer la langue détectée")
+        case .germanGermany: ("Erkannte Sprache prüfen", "Erkannte Sprache wechseln")
+        case .italianItaly: ("Controlla la lingua rilevata", "Cambia la lingua rilevata")
+        case .portugueseBrazil: ("Confira o idioma detectado", "Trocar o idioma detectado")
+        case .japaneseJapan: ("認識された言語を確認", "認識された言語を切り替える")
+        case .koreanSouthKorea: ("감지된 언어 확인", "감지된 언어 변경")
+        case .hindiIndia: ("पहचानी गई भाषा जाँचें", "पहचानी गई भाषा बदलें")
         }
     }
 }

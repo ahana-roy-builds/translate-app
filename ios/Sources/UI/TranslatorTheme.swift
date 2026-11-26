@@ -45,6 +45,19 @@ extension AppAppearance {
     }
 }
 
+struct SpeakDuetLogo: View {
+    let height: CGFloat
+
+    var body: some View {
+        Image("SpeakDuetLogo")
+            .resizable()
+            .scaledToFit()
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .frame(height: height)
+            .accessibilityHidden(true)
+    }
+}
+
 struct ReadinessRow: View {
     let title: String
     let value: ComponentReadiness

@@ -15,6 +15,11 @@ enum LanguageReviewReason: String, CaseIterable, Equatable, Hashable, Sendable {
     case competingFinals
 }
 
+struct TimedSpeechWord: Equatable, Sendable {
+    let text: String
+    let range: CMTimeRange
+}
+
 struct RecognitionCandidate: Equatable, Sendable {
     let language: AppLanguage
     let text: String
@@ -23,6 +28,7 @@ struct RecognitionCandidate: Equatable, Sendable {
     let lowConfidenceFraction: Double
     let constrainedLanguageProbability: Double?
     let score: Double
+    var timedWords: [TimedSpeechWord] = []
 }
 
 struct LanguageDecision: Equatable, Sendable {
@@ -199,6 +205,25 @@ struct ContinuousRecognitionAccumulator {
         )
     }
 
+    func timedWords(in interval: CMTimeRange? = nil) -> [TimedSpeechWord] {
+        var words: [TimedSpeechWord] = []
+        for segment in segments {
+            guard let text = segment.timedText else { continue }
+            for run in text.runs {
+                guard let time = run[AttributeScopes.SpeechAttributes.TimeRangeAttribute.self],
+                      time.isValid, !time.isEmpty else { continue }
+                let midpoint = time.start + CMTimeMultiplyByRatio(time.duration, multiplier: 1, divisor: 2)
+                if let interval, midpoint < interval.start || midpoint >= interval.end { continue }
+                let word = String(text[run.range].characters)
+                    .trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+                if !word.isEmpty && word.allSatisfy({ $0.isLetter }) {
+                    words.append(TimedSpeechWord(text: word, range: time))
+                }
+            }
+        }
+        return words
+    }
+
     mutating func discard(before time: CMTime) {
         let cutoff = CMTimeGetSeconds(time)
         guard cutoff.isFinite else { return }
@@ -246,7 +271,8 @@ enum ContinuousLanguageDecisionPolicy {
     static func makeCandidate(
         language: AppLanguage,
         transcript: Transcript,
-        constrainedLanguageProbability: Double?
+        constrainedLanguageProbability: Double?,
+        timedWords: [TimedSpeechWord] = []
     ) -> RecognitionCandidate? {
         let text = transcript.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
@@ -264,7 +290,8 @@ enum ContinuousLanguageDecisionPolicy {
             confidence: transcript.confidence.map(clamp),
             lowConfidenceFraction: lowConfidenceFraction,
             constrainedLanguageProbability: constrainedLanguageProbability.map(clamp),
-            score: score
+            score: score,
+            timedWords: timedWords
         )
     }
 
@@ -276,7 +303,8 @@ enum ContinuousLanguageDecisionPolicy {
         let eligible = candidates.filter { candidate in
             candidate.text.contains { $0.isLetter || $0.isNumber }
         }
-        let preferredLanguage = isEnglishHindi ? PairLanguageEvidencePolicy.preferredLanguage(in: eligible) : nil
+        let mixed = pair.flatMap { MixedLanguageTurn.reading(eligible, pair: $0) }
+        let preferredLanguage = mixed?.language ?? (isEnglishHindi ? PairLanguageEvidencePolicy.preferredLanguage(in: eligible) : nil)
         let ranked = eligible.sorted {
             if let preferredLanguage, $0.language != $1.language {
                 return $0.language == preferredLanguage
@@ -284,8 +312,8 @@ enum ContinuousLanguageDecisionPolicy {
             if abs($0.score - $1.score) > .ulpOfOne { return $0.score > $1.score }
             return $0.language.rawValue < $1.language.rawValue
         }
-        guard let selected = ranked.first else { return nil }
-        let alternate = ranked.dropFirst().first
+        guard let selected = mixed ?? ranked.first else { return nil }
+        let alternate = ranked.first { $0.language != selected.language }
         var reasons = Set<LanguageReviewReason>()
 
         if selected.text.filter(\.isLetter).count < minimumAlphabeticCharacters {
@@ -299,7 +327,7 @@ enum ContinuousLanguageDecisionPolicy {
             // Both recognizers can turn the same sounds into plausible but different
             // sentences in their own languages. Re-decoding just one side would
             // discard that competing evidence.
-            if pair != nil, !isEnglishHindi, selected.language != alternate.language,
+            if mixed == nil, pair != nil, !isEnglishHindi, selected.language != alternate.language,
                [selected, alternate].allSatisfy({ candidate in
                    candidate.isFinal && candidate.score >= minimumScore
                        && (candidate.constrainedLanguageProbability ?? 0) >= 0.8
@@ -315,7 +343,7 @@ enum ContinuousLanguageDecisionPolicy {
            probability < strongDisagreementProbability {
             reasons.insert(.languageDisagreement)
         }
-        if let pair, !isEnglishHindi, contradictsSpokenLanguage(selected, in: pair) {
+        if mixed == nil, let pair, !isEnglishHindi, contradictsSpokenLanguage(selected, in: pair) {
             reasons.insert(.conflictingSpeakerEvidence)
         }
         if isEnglishHindi {
@@ -355,16 +383,16 @@ enum PairLanguageEvidencePolicy {
         // Both recognizers can spell the other language phonetically. Restricting
         // text identification to English and Hindi makes Romanized Hindi score
         // almost 1.0 for English. Check English independently of that prior.
-        let englishTranscript = Transcript(text: english.text, isFinal: english.isFinal, confidence: english.confidence,
-                                           lowConfidenceFraction: english.lowConfidenceFraction)
-        if !englishTranscript.isUncertain {
-            let detector = NLLanguageRecognizer()
-            detector.processString(english.text)
-            if let probability = detector.languageHypotheses(withMaximum: 1)[.english], probability >= 0.5 {
-                return .englishUS
-            }
-        }
-        return .hindiIndia
+        return isConfidentEnglish(english) ? .englishUS : .hindiIndia
+    }
+
+    static func isConfidentEnglish(_ candidate: RecognitionCandidate) -> Bool {
+        let transcript = Transcript(text: candidate.text, isFinal: candidate.isFinal, confidence: candidate.confidence,
+                                    lowConfidenceFraction: candidate.lowConfidenceFraction)
+        guard !transcript.isUncertain else { return false }
+        let detector = NLLanguageRecognizer()
+        detector.processString(candidate.text)
+        return (detector.languageHypotheses(withMaximum: 1)[.english] ?? 0) >= 0.5
     }
 
     static func constrainedProbability(
@@ -375,14 +403,15 @@ enum PairLanguageEvidencePolicy {
     ) -> Double? {
         guard pair.isEnglishHindi else { return base }
 
-        guard hasStrongHindiScriptEvidence(text) else { return base }
+        guard hasStrongHindiScriptEvidence(text),
+              text.range(of: #"\p{Latin}"#, options: .regularExpression) == nil else { return base }
         let value = ContinuousLanguageDecisionPolicy.clamp(base ?? 0.5)
         return expected == .hindiIndia ? max(value, 0.98) : min(value, 0.02)
     }
 
     static func hasStrongHindiScriptEvidence(_ text: String) -> Bool {
         text.unicodeScalars.reduce(into: 0) { count, scalar in
-            if (0x0900...0x097F).contains(Int(scalar.value)) {
+            if (0x0900...0x097F).contains(Int(scalar.value)) && CharacterSet.letters.contains(scalar) {
                 count += 1
             }
         } >= 2
@@ -393,6 +422,15 @@ struct ContinuousDraftSelector {
     private(set) var selectedLanguage: AppLanguage?
     private var pendingLanguage: AppLanguage?
     private var pendingCount = 0
+
+    mutating func select(candidates: [RecognitionCandidate], pair: LanguagePair) -> RecognitionCandidate? {
+        if let mixed = MixedLanguageTurn.reading(candidates, pair: pair) {
+            let others = candidates.filter { $0.language != mixed.language }
+            return select(candidates: others + [mixed], preferredLanguage: mixed.language)
+        }
+        let preferred = pair.isEnglishHindi ? PairLanguageEvidencePolicy.preferredLanguage(in: candidates) : nil
+        return select(candidates: candidates, preferredLanguage: preferred)
+    }
 
     mutating func select(
         candidates: [RecognitionCandidate],

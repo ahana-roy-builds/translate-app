@@ -20,6 +20,7 @@ SILENCE = COORD + "testInstalledHindiEnglishListenerPausesAndResumesAfterSilentA
 SPANISH = COORD + "testInstalledAppleModelsTranslateRecordedPausesOnDevice"
 ACOUSTIC = COORD + "testHindiAndEnglishPhysicalMicrophoneReopensAfterAutoSpeak"
 QUEUED = "LocalLingoTests/ContinuousSpeechRecognitionPolicyTests/testQueuedHindiAndEnglishTurnsUseSeparateSpeechContextsOnDevice"
+MIXED = "LocalLingoTests/ContinuousSpeechRecognitionPolicyTests/testRecordedHindiTurnsKeepEmbeddedEnglishOnDevice"
 SIMULATOR = [
     COORD.rstrip("/"), "LocalLingoTests/ContinuousTalkPresentationTests",
     "LocalLingoTests/ContinuousTranscriptPresentationTests", "LocalLingoTests/VoiceActivityBoundaryDetectorTests",
@@ -31,7 +32,8 @@ SIMULATOR = [
     UI + "testReopenLanguagePacksAndSpanishDetailsFromSettings",
     UI + "testDownloadAndReleaseHindiFromDetails",
 ]
-DEVICE = [SILENCE, SPANISH, QUEUED]
+MIXED_EXCHANGE = COORD + "testInstalledModelsTranslateMixedSpeechAtPauseOnDevice"
+DEVICE = [SILENCE, SPANISH, QUEUED, MIXED, MIXED_EXCHANGE]
 LIVE = [ACOUSTIC, "LocalLingoTests/AudioLifecycleTests/testDelayedNotificationsCannotStopReopenedPhysicalMicrophone",
         UI + "testRelayControlsDuringLiveConversation"]
 
@@ -109,7 +111,7 @@ def main():
                    "-onlyUsePackageVersionsFromResolvedFile", "-resultBundlePath", bundle, "test"]
         command.extend("-only-testing:" + test for test in tests)
         if args.suite == "simulator":
-            command.extend("-skip-testing:" + test for test in [SILENCE, SPANISH, ACOUSTIC, QUEUED])
+            command.extend("-skip-testing:" + test for test in [*DEVICE, ACOUSTIC])
         if args.suite == "live":
             env["TEST_RUNNER_SPEAK_DUET_LIVE_MIC"] = "1"
 

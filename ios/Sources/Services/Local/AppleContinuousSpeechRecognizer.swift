@@ -529,7 +529,7 @@ final class AppleContinuousSpeechRecognizer: ContinuousSpeechRecognizing {
                 accumulators: liveAccumulators
             )
         }
-        guard let selected = selector.select(candidates: candidates) else {
+        guard let selected = selector.select(candidates: candidates, pair: pair) else {
             return nil
         }
         return ContinuousDraft(

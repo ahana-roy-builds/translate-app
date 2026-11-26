@@ -350,7 +350,6 @@ final class ContinuousSpeechMatrixTests: XCTestCase {
                         d["side"] = turn.speaker.rawValue
                         d["asr"] = turn.sourceText
                         d["output"] = turn.translatedText
-                        d["entityMismatch"] = String(turn.warnings.contains(.entityMismatch))
                         d["review"] = turn.languageReviewStatus.rawValue
                         if idx == 0 || (idx == 1 && source == pair.traveler) {
                             replays.append((turn, source, idx))
@@ -364,7 +363,6 @@ final class ContinuousSpeechMatrixTests: XCTestCase {
                         d["lastSynthesizedText"] = playback.completed.count > synthesesBefore ? playback.lastText : nil
                         if let turn = result.first {
                             let shouldSpeak = !turn.warnings.contains(.unresolvedSpeaker)
-                                && !turn.warnings.contains(.entityMismatch) && !(pair.isEnglishHindi && !turn.entities.isEmpty)
                             XCTAssertEqual(playback.completed.count - synthesesBefore, shouldSpeak ? 1 : 0)
                             if shouldSpeak {
                                 XCTAssertEqual(d["autoVoice"]?.replacingOccurrences(of: "_", with: "-"), target.code)
@@ -380,7 +378,6 @@ final class ContinuousSpeechMatrixTests: XCTestCase {
             for (turn, source, idx) in replays {
                 var d = [
                     "pair": key, "expected": source.code, "idx": String(idx), "target": turn.targetLocale,
-                    "entityMismatch": String(turn.warnings.contains(.entityMismatch)),
                     "unresolvedSpeaker": String(turn.warnings.contains(.unresolvedSpeaker)),
                 ]
                 if talk.canReplayTranslation(for: turn) {

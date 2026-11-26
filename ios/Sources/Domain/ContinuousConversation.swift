@@ -116,27 +116,4 @@ enum ContinuousModePolicy {
     ) -> Bool {
         wasEnabledAtBoundary && isEnabledNow
     }
-
-    static func shouldSpeakTranslation(
-        wasEnabledAtBoundary: Bool,
-        isEnabledNow: Bool,
-        pair: LanguagePair,
-        requiresLanguageReview: Bool = false,
-        requiresEntityReview: Bool = false,
-        hasEntityMismatch: Bool = false
-    ) -> Bool {
-        guard shouldSpeakTranslation(
-            wasEnabledAtBoundary: wasEnabledAtBoundary,
-            isEnabledNow: isEnabledNow
-        ) else { return false }
-        guard !hasEntityMismatch else { return false }
-        if pair.traveler == .hindiIndia || pair.local == .hindiIndia {
-            // Hindi remains reviewable because its two recognizers do not
-            // expose calibrated confidence values. Honor the explicit Speak
-            // preference for ordinary turns, but never speak a turn whose
-            // important entities require confirmation.
-            return !requiresEntityReview
-        }
-        return true
-    }
 }

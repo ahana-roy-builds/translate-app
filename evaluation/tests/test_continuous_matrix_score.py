@@ -53,12 +53,12 @@ class MatrixScoreTests(unittest.TestCase):
         self.assertTrue(self.score()["regressions"])
         self.assertFalse(self.score()["needsReview"])
 
-    def test_wrong_side_and_wrong_target_voice_fail_but_safety_hold_is_expected(self):
+    def test_wrong_side_and_wrong_target_voice_fail_and_only_unresolved_speakers_skip_replay(self):
         self.rows[0]["side"] = "local"
         self.rows[0].update(autoVoice="en_US", lastSynthesizedText="Hola")
         replay = {"kind": "replay", "pair": "en-US_es-ES", "expected": "en-US", "error": "ineligible"}
-        self.rows.extend([replay, dict(replay, entityMismatch="true")])
+        self.rows.extend([replay, dict(replay, entityMismatch="true"), dict(replay, unresolvedSpeaker="true")])
         result = self.score()
         self.assertEqual(len(result["routingErrors"]), 1)
-        self.assertEqual(len(result["wrongPlayback"]), 2)
+        self.assertEqual(len(result["wrongPlayback"]), 3)
         self.assertTrue(quality_issues(result))

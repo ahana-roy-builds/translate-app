@@ -1,3 +1,7 @@
 // Copy to the ignored Debug.local.xcconfig for local device signing.
 APP_BUNDLE_IDENTIFIER = org.REPLACE.locallingo.debug
 DEVELOPMENT_TEAM = REPLACE1234
+
+// Uncomment to test conversations on a development iPhone after the trial expires.
+// Comment it again and rebuild to exercise the subscription gate on that phone.
+// TRANSLATION_ACCESS_REQUIRED[sdk=iphoneos*] = NO

@@ -70,7 +70,7 @@ For physical tests, use an unlocked development iPhone and the Debug signing con
 
 | Suite | What it checks | Command |
 | --- | --- | --- |
-| Recorded device checks | English–Hindi controlled silence and queued speech, plus an English–Spanish recorded conversation and replay with the installed Apple models | `python3 evaluation/scripts/run_talk_tests.py device --device IPHONE_UDID` |
+| Recorded device checks | English–Hindi silence and queued speech, mixed Hindi–English recordings, and three-turn English–Hindi and English–Spanish exchanges with on-device translation and replay | `python3 evaluation/scripts/run_talk_tests.py device --device IPHONE_UDID` |
 | All language pairs | Three phrases in both directions for each of 29 supported pairs, 174 turns total. Includes speaker assignment, transcript and translation meaning, target voice, and replay. | `python3 evaluation/scripts/run_talk_tests.py matrix --device IPHONE_UDID` |
 | English–Spanish and English–Hindi comparison | The same scoring on 12 turns, with automatic playback enabled | `python3 evaluation/scripts/run_talk_tests.py matrix --device IPHONE_UDID --pairs en-US_es-ES,en-US_hi-IN --auto-speak` |
 | Live microphone | Microphone recovery after playback, Relay controls, and a 20-second quiet interval. Put the phone beside the Mac speaker. The runner plays the Hindi and English clips when the phone is listening. | `python3 evaluation/scripts/run_talk_tests.py live --device IPHONE_UDID` |
@@ -91,7 +91,7 @@ The matrix also writes `matrix-score.json` using the checked-in reviewed transcr
    identifier from `Debug.local.xcconfig`, then run the app from Xcode.
 3. Allow microphone and speech-recognition access. Keep the phone online for
    this one-time preparation phase.
-4. Select the two languages at the top of Talk, open **Manage Language Packs**,
+4. Select the two languages at the top of Face to Face or Conversation Mode, open **Manage Language Packs**,
    and tap **Download and verify selected pair**. Selecting a language checks
    readiness but does not download it.
 5. Wait until Listen for both selected languages, Translate both directions,
@@ -110,10 +110,10 @@ translation directions are available on the current iPhone.
 Debug and the offline Private Beta configuration additionally expose
 `Hindi (Beta)` for English-Hindi conversations only. Hindi uses Apple's local
 `DictationTranscriber`; it never falls back to network speech recognition.
-Every continuous English-Hindi result remains review-required. With Speak on,
-ordinary translations play automatically. A turn containing important details
-waits until the tester checks the text and chooses Play translation. A detected
-important-detail mismatch remains text-only and cannot be played.
+In Face to Face and Conversation Mode, translations play automatically when Speak is on. The speaker
+button replays a translation. If the app cannot tell which language was spoken,
+choose the language to finish translating that turn.
+
 Standard TestFlight and Release configurations omit Hindi until its physical
 device, quality, and safety gates are complete. Current physical-device
 evidence covers capability inventory and installation of the exact Hindi
@@ -207,12 +207,15 @@ interruption/cancellation, and the 30-second manual capture limit.
 
 ### Continuous pair mode
 
-Continuous conversation is the primary Talk screen and remains local-only.
+Face to Face opens by default with one panel for each reader. Conversation Mode shows both speakers in one upright transcript. Both modes run locally.
 The microphone starts only when the center control is tapped. While active, it
 uses the bundled Silero VAD Core ML model to find utterance boundaries and runs
-the two selected Listen models together. Each language has one live and one
-final-only transcriber, for four modules total. The app
-chooses between only that pair and translates the winning transcript on-device.
+the two selected Listen models on the same audio. For turns that include English,
+Speak Duet assigns the turn to the speaker whose language accounts for more than half
+the words when it can identify both languages. It saves the complete mixed transcript and
+sends it to on-device translation as one sentence. For Hindi dictation, Speak Duet can
+recover an English spelling from the other recognizer when the words agree.
+A tie or conflicting readings use the existing speaker-selection and review rules.
 All 28 base-catalog pairs in the matrix are selectable. Debug and `PrivateBeta`
 add the English-Hindi beta pair. Actual availability remains gated by Apple's
 on-device Listen and Translation checks.
@@ -229,8 +232,8 @@ listening without discarding speech already in progress: the app finalizes and
 drains that fragment before entering the paused state, then opens a fresh
 recognition segment on Resume. Ending keeps the completed transcript visible;
 starting again creates a new session and clears the prior transcript. The mode
-assumes one person speaks at a time and does not resolve overlapping speakers,
-mid-utterance code switching, television audio, or noisy group conversations.
+assumes one person speaks at a time. Overlapping speakers, television audio, and
+noisy group conversations can make speaker identification unreliable.
 A low-confidence choice is retained and marked for review; **Swap detected
 language** retranslates the stored alternate transcript without retaining
 audio.

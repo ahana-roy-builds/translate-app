@@ -336,7 +336,8 @@ final class TurnSpeechSession {
                 return ContinuousLanguageDecisionPolicy.makeCandidate(
                     language: language, transcript: transcript,
                     constrainedLanguageProbability: AppleContinuousSpeechRecognizer.languageProbability(
-                        for: transcript.text, expected: language, pair: pair)
+                        for: transcript.text, expected: language, pair: pair),
+                    timedWords: pair.isEnglishHindi ? accumulator.timedWords() : []
                 )
             }
             for try await event in module.normalizedResults() {
@@ -347,7 +348,8 @@ final class TurnSpeechSession {
                     guard
                         accumulator.apply(
                             range: event.range, text: text, isFinal: event.isFinal,
-                            confidence: confidence.mean, lowConfidenceFraction: confidence.lowFraction)
+                            confidence: confidence.mean, lowConfidenceFraction: confidence.lowFraction,
+                            timedText: pair.isEnglishHindi ? event.text : nil)
                     else {
                         throw PipelineError.server(
                             "The speech result was too complex. Please split the turn and try again.")
@@ -367,8 +369,7 @@ final class TurnSpeechSession {
                 try apply(to: &live)
                 partials[language] = try candidate(live)
                 let candidates = partials.values.filter { $0.text.contains { $0.isLetter || $0.isNumber } }
-                let preferred = pair.isEnglishHindi ? PairLanguageEvidencePolicy.preferredLanguage(in: candidates) : nil
-                draft = selector.select(candidates: candidates, preferredLanguage: preferred).map {
+                draft = selector.select(candidates: candidates, pair: pair).map {
                     ContinuousDraft(
                         language: $0.language, text: TurnTextPolicy.clampedPartial($0.text),
                         confidence: $0.confidence, score: $0.score)

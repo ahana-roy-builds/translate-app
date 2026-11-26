@@ -23,11 +23,9 @@ coexistence, Translation, speech synthesis, live continuous use, quality, and
 safety gates pass on physical iPhones. See the
 [Hindi research status](docs/hindi-offline-support-research.md).
 
-Every English–Hindi continuous turn is marked review-required while this beta
-is being evaluated. With Speak on, ordinary translations play automatically.
-Turns containing important details wait for the tester to check the text and
-choose Play translation. A turn with an important-detail mismatch remains
-text-only and cannot be played.
+In Face to Face and Conversation Mode, translations play automatically when Speak is on. The speaker
+button replays a translation. If the app cannot tell which language was spoken,
+choose the language to finish translating that turn.
 
 The app has two explicit processing paths:
 
