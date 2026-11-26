@@ -36,6 +36,11 @@ enum LocalConversationLanguagePolicy {
     }
 }
 
+enum ListeningPauseReason: Equatable, Sendable {
+    case user
+    case silence
+}
+
 enum ContinuousConversationState: Equatable, Sendable {
     case idle
     case preparing
@@ -43,7 +48,7 @@ enum ContinuousConversationState: Equatable, Sendable {
     case catchingUp(pendingTurns: Int)
     case pausedForPlayback
     case pausing
-    case pausedByUser
+    case paused(ListeningPauseReason)
     case resuming
     case ending
     case ended
@@ -53,7 +58,7 @@ enum ContinuousConversationState: Equatable, Sendable {
     var isRunning: Bool {
         switch self {
         case .preparing, .listening, .catchingUp, .pausedForPlayback,
-             .pausing, .pausedByUser, .resuming, .ending:
+             .pausing, .paused, .resuming, .ending:
             true
         case .idle, .ended, .interrupted, .failed:
             false
@@ -62,6 +67,7 @@ enum ContinuousConversationState: Equatable, Sendable {
 }
 
 enum ContinuousModePolicy {
+    static let silenceTimeout: TimeInterval = 20
     static let maximumPendingTurns = 4
     static let resumeCapturePendingTurns = 1
 
@@ -71,7 +77,7 @@ enum ContinuousModePolicy {
 
     static func canCorrectLanguage(in state: ContinuousConversationState) -> Bool {
         switch state {
-        case .listening, .catchingUp, .pausedByUser:
+        case .listening, .catchingUp, .paused:
             true
         case .idle, .preparing, .pausedForPlayback, .pausing, .resuming,
              .ending, .ended, .interrupted, .failed:

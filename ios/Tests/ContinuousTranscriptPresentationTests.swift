@@ -89,7 +89,7 @@ final class ContinuousTranscriptPresentationTests: XCTestCase {
         XCTAssertEqual(TalkWavePhase(state: .catchingUp(pendingTurns: 1), speaking: false, replaying: false), .resolving)
         XCTAssertEqual(TalkWavePhase(state: .pausedForPlayback, speaking: true, replaying: false), .playback)
         XCTAssertEqual(TalkWavePhase(state: .ended, speaking: false, replaying: true), .playback)
-        XCTAssertEqual(TalkWavePhase(state: .pausedByUser, speaking: true, replaying: false), .quiet)
+        XCTAssertEqual(TalkWavePhase(state: .paused(.user), speaking: true, replaying: false), .quiet)
     }
 
     func testInterruptedActionAndParticipantLabels() {
@@ -121,9 +121,9 @@ final class ContinuousTranscriptPresentationTests: XCTestCase {
                      _ live: ContinuousDraft?, _ phase: TalkWavePhase, dark: Bool = false, large: Bool = false) async throws {
             func panel(_ side: SpeakerSide) -> some View {
                 TalkParticipantPanel(side: side, language: LanguagePair().source(for: side), turns: turns,
-                                     pending: pending, live: live, canChangeLanguage: false,
+                                     pending: pending, live: live,
                                      allowsCorrection: false, playbackID: nil, canReplay: { _ in true },
-                                     selectLanguage: {}, correct: { _ in }, replay: { _ in })
+                                     correct: { _ in }, replay: { _ in })
             }
             let split = VStack(spacing: 0) {
                 panel(.local).rotationEffect(.degrees(180))

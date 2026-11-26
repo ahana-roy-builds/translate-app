@@ -44,6 +44,16 @@ ios-test:
 	@command -v xcodebuild >/dev/null || (echo "xcodebuild is required" >&2; exit 2)
 	cd ios && xcodegen generate && xcodebuild -project LocalLingo.xcodeproj -scheme 'Speak Duet' -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5' test
 
+.PHONY: ios-talk-test ios-talk-preflight
+ios-talk-test:
+	$(PYTHON) evaluation/scripts/run_talk_tests.py simulator
+
+ios-talk-preflight:
+	@test -n "$(DEVICE_UDID)" || (echo "Set DEVICE_UDID to the test iPhone's UDID." >&2; exit 2)
+	$(MAKE) ios-talk-test
+	$(PYTHON) evaluation/scripts/run_talk_tests.py device --device "$(DEVICE_UDID)"
+	$(PYTHON) evaluation/scripts/run_talk_tests.py matrix --device "$(DEVICE_UDID)" --auto-speak
+
 ios-private-beta-compile:
 	@command -v xcodegen >/dev/null || (echo "xcodegen is required" >&2; exit 2)
 	@command -v xcodebuild >/dev/null || (echo "Xcode 26.4 or newer is required" >&2; exit 2)

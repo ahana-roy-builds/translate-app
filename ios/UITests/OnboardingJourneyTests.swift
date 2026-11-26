@@ -52,15 +52,75 @@ final class OnboardingJourneyTests: XCTestCase {
         let partner = app.buttons["talk.partner-language"]
         let owner = app.buttons["talk.traveler-language"]
         XCTAssertTrue(owner.waitForExistence(timeout: 10))
-        XCTAssertLessThan(partner.frame.midY, owner.frame.midY)
+        let swap = app.buttons["talk.swap-languages"]
+        let mic = app.buttons["talk.primary-microphone"]
+        let bottom = app.staticTexts["talk.seat-language.traveler"]
+        let top = app.staticTexts["talk.seat-language.local"]
+        XCTAssertEqual(partner.frame.midY, owner.frame.midY, accuracy: 4)
+        XCTAssertLessThan(owner.frame.midX, swap.frame.midX)
+        XCTAssertLessThan(swap.frame.midX, partner.frame.midX)
+        XCTAssertEqual(swap.frame.midX, mic.frame.midX, accuracy: 4)
+        XCTAssertLessThan(swap.frame.maxY, top.frame.midY)
+        XCTAssertLessThan(top.frame.midY, mic.frame.midY)
+        XCTAssertLessThan(mic.frame.midY, bottom.frame.midY)
+        XCTAssertEqual(bottom.label, "English")
+        XCTAssertEqual(top.label, "Español")
+        tap("talk.swap-languages", in: app)
+        XCTAssertEqual(bottom.label, "Español")
+        XCTAssertEqual(top.label, "English")
+        XCTAssertTrue(owner.label.contains("Spanish"))
+        XCTAssertTrue(partner.label.contains("English"))
+        tap("talk.swap-languages", in: app)
         XCTAssertFalse(app.buttons["Subscription"].exists)
         attach(app, named: "Wave ribbon ready")
         tap("talk.switch-layout", in: app)
         XCTAssertEqual(partner.frame.midY, owner.frame.midY, accuracy: 4)
         tap("talk.switch-layout", in: app)
-        XCTAssertLessThan(partner.frame.midY, owner.frame.midY)
+        XCTAssertTrue(top.exists)
         tap("talk.primary-microphone", in: app)
         XCTAssertTrue(app.staticTexts["Keep the conversation going"].waitForExistence(timeout: 5))
+    }
+
+    func testRelayControlsDuringLiveConversation() throws {
+        continueAfterFailure = false
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["SPEAK_DUET_LIVE_MIC"] == "1",
+                          "Requires an English–Hindi iPhone with live microphone testing enabled and a quiet interval.")
+        let app = XCUIApplication()
+        app.launchArguments = ["SpeakDuet.UITests"]
+        app.launch()
+        defer { app.terminate() }
+        for id in ["onboarding.continue", "onboarding.language.en-US", "onboarding.continue",
+                   "onboarding.language.hi-IN", "onboarding.continue", "onboarding.continue"] {
+            tap(id, in: app)
+        }
+        let playback = app.buttons["talk.spoken-translations"]
+        if playback.value as? String == "On" { playback.tap() }
+        let mic = app.buttons["talk.primary-microphone"]
+        tap("talk.primary-microphone", in: app)
+        XCTAssertTrue(mic.wait(for: \.label, toEqual: "Pause listening", timeout: 30))
+        attach(app, named: "Relay listening in English and Hindi")
+        tap("talk.swap-languages", in: app)
+        XCTAssertEqual(mic.label, "Pause listening")
+        XCTAssertTrue(app.buttons["talk.traveler-language"].label.contains("Hindi"))
+        let hindi = app.staticTexts["talk.seat-language.local"]
+        XCTAssertGreaterThan(hindi.frame.midY, mic.frame.midY)
+        mic.tap()
+        XCTAssertTrue(mic.wait(for: \.label, toEqual: "Resume listening", timeout: 10))
+        mic.tap()
+        XCTAssertTrue(mic.wait(for: \.label, toEqual: "Pause listening", timeout: 15))
+        app.tabBars.buttons["History"].tap()
+        app.tabBars.buttons["Talk"].tap()
+        XCTAssertTrue(mic.wait(for: \.label, toEqual: "Resume listening", timeout: 10))
+        mic.tap()
+        XCTAssertTrue(mic.wait(for: \.label, toEqual: "Pause listening", timeout: 15))
+        let status = app.staticTexts["talk.session-status"]
+        XCTAssertTrue(status.wait(for: \.label, toEqual: "Paused after 20 seconds of silence", timeout: 60))
+        XCTAssertEqual(mic.label, "Resume listening")
+        mic.tap()
+        XCTAssertTrue(mic.wait(for: \.label, toEqual: "Pause listening", timeout: 15))
+        tap("talk.more", in: app)
+        tap("End conversation", in: app)
+        XCTAssertTrue(mic.wait(for: \.label, toEqual: "Start continuous conversation", timeout: 10))
     }
 
     func testMissingLanguagesKeepTalkVisibleUntilSetupIsRequested() {
@@ -76,7 +136,7 @@ final class OnboardingJourneyTests: XCTestCase {
         let setup = app.buttons["talk.language-setup"].firstMatch
         XCTAssertTrue(setup.waitForExistence(timeout: 10))
         let owner = app.buttons["talk.traveler-language"], partner = app.buttons["talk.partner-language"]
-        XCTAssertLessThan(partner.frame.midY, owner.frame.midY)
+        XCTAssertEqual(partner.frame.midY, owner.frame.midY, accuracy: 4)
         XCTAssertFalse(app.buttons["Download and Verify"].exists)
         tap("talk.switch-layout", in: app)
         XCTAssertEqual(partner.frame.midY, owner.frame.midY, accuracy: 4)

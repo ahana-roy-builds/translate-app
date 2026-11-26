@@ -46,9 +46,27 @@ def reviewed_labels(runs, baseline):
     return labels
 
 
-def compare(log, baseline, labels):
+def verification_runs(published):
+    runs = list(published["runs"])
+    for name in ("autoSpeak", "fullAutoSpeak", "finalJapaneseKoreanReplay", "finalGermanKoreanAutoSpeak",
+                 "finalCompetingSpeakers"):
+        if published.get(name):
+            runs.append(published[name])
+    return runs
+
+
+def compare(log, baseline, labels, pairs=None):
     fixtures = {(row["code"], str(row["idx"])): row["text"] for row in baseline["fixtures"]}
     original = {(row["expected"], row["intended"], row["idx"]): row for row in baseline["spoken"]}
+    if pairs is not None:
+        wanted = {frozenset(pair.split("_")) for pair in pairs}
+        supported = {frozenset((source, target)) for source, target, _ in original}
+        if not wanted or not wanted <= supported:
+            raise ValueError(f"Unknown fixture pair(s): {pairs}")
+        original = {key: row for key, row in original.items() if frozenset(key[:2]) in wanted}
+    regressions = []
+    wrong_playback = []
+    routing_errors = []
     observed = set()
     unknown = set()
     totals = Counter()
@@ -70,10 +88,23 @@ def compare(log, baseline, labels):
         if kind == "reference":
             totals["referenceCalls"] += 1
             totals["referenceMeaning"] += meaning(row["target"], row, "out") is True
+        if kind == "manual":
+            totals["fixedLanguageCalls"] += 1
+            totals["fixedLanguageMeaning"] += meaning(row["src"], row, "asr") is True
+        if kind == "voice":
+            totals["voiceChecks"] += 1
+            if row.get("actual", "").replace("_", "-") == row["src"]:
+                totals["correctVoices"] += 1
+            else:
+                wrong_playback.append(row)
         if kind == "replay":
             partner = next(code for code in row["pair"].split("_") if code != row["expected"])
             totals["replayRequests"] += 1
-            totals["correctReplay"] += row.get("voice", "").replace("_", "-") == partner and row.get("sameText") == "true"
+            correct_voice = row.get("voice", "").replace("_", "-") == partner and row.get("sameText") == "true"
+            totals["correctReplay"] += correct_voice
+            safety_hold = row.get("entityMismatch") == "true" or row.get("unresolvedSpeaker") == "true"
+            if (safety_hold and row.get("error") != "ineligible") or (not safety_hold and not correct_voice):
+                wrong_playback.append(row)
         if kind != "spoken":
             continue
         source, target, index = row["expected"], row["intended"], row["idx"]
@@ -91,22 +122,37 @@ def compare(log, baseline, labels):
         totals["savedOnce"] += saved
         totals["awaitingSpeaker"] += pending
         totals["correctSpeaker"] += routed
+        if not routed and not (saved and pending):
+            routing_errors.append(key)
         if row.get("autoVoice"):
             totals["automaticPlaybacks"] += 1
-            totals["correctAutomaticPlayback"] += (
+            correct_playback = (
                 routed and row["autoVoice"].replace("_", "-") == target
                 and row.get("lastSynthesizedText") == row.get("output")
             )
-        totals["transcriptMeaning"] += routed and meaning(source, row, "asr") is True
-        correct = routed and meaning(target, row, "output") is True
+            totals["correctAutomaticPlayback"] += correct_playback
+            if not correct_playback:
+                wrong_playback.append(row)
+        transcript_meaning = meaning(source, row, "asr") if routed else False
+        totals["transcriptMeaning"] += transcript_meaning is True
+        output_meaning = meaning(target, row, "output") if routed else False
+        correct = output_meaning is True
         totals["translationMeaning"] += correct
-        if original[key]["reviewedOutcome"]["outputMeaning"]:
+        prior = original[key]["reviewedOutcome"]
+        if prior["transcriptMeaning"] and transcript_meaning is False:
+            regressions.append((*key, "transcript"))
+        if prior["outputMeaning"]:
             totals["baselineSuccessesRetained"] += correct
+            if output_meaning is False:
+                regressions.append((*key, "translation"))
         else:
             totals["baselineFailuresRecovered"] += correct
 
     return {
         "counts": dict(totals),
+        "regressions": sorted(regressions),
+        "wrongPlayback": wrong_playback,
+        "routingErrors": sorted(routing_errors),
         "expectedTurns": len(original),
         "observedTurns": len(observed),
         "missing": sorted(original.keys() - observed),
@@ -114,24 +160,26 @@ def compare(log, baseline, labels):
     }
 
 
+def quality_issues(score):
+    return [f"{key}: {len(score[key])}" for key in
+            ("missing", "needsReview", "regressions", "wrongPlayback", "routingErrors") if score[key]]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("log", type=Path)
     parser.add_argument("--baseline", type=Path, required=True)
     parser.add_argument("--review", type=Path, help="Additional published per-turn engineering reviews")
+    parser.add_argument("--pairs", help="Canonical pairs selected for a partial run, separated by commas")
     args = parser.parse_args()
     baseline = json.loads(args.baseline.read_text())
     runs = []
     if args.review:
         published = json.loads(args.review.read_text())
-        runs.extend(published["runs"])
-        for name in ("autoSpeak", "fullAutoSpeak", "finalJapaneseKoreanReplay", "finalGermanKoreanAutoSpeak",
-                     "finalCompetingSpeakers"):
-            if published.get(name):
-                runs.append(published[name])
-    result = compare(args.log, baseline, reviewed_labels(runs, baseline))
+        runs = verification_runs(published)
+    result = compare(args.log, baseline, reviewed_labels(runs, baseline), args.pairs.split(",") if args.pairs else None)
     print(json.dumps(result, indent=2, ensure_ascii=False))
-    return 1 if result["needsReview"] or result["missing"] else 0
+    return int(bool(quality_issues(result)))
 
 
 if __name__ == "__main__":

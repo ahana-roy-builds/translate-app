@@ -80,8 +80,16 @@ jobs:
           cp ios/Config/TestFlight.local.xcconfig.example ios/Config/TestFlight.local.xcconfig
           cp ios/Config/Release.local.xcconfig.example ios/Config/Release.local.xcconfig
           sed -i '' 's/org\.REPLACE/ci.locallingo/g; s/REPLACE1234/ABCDE12345/g; s/REPLACE\.tld/ci-locallingo.dev/g' ios/Config/PrivateBeta.local.xcconfig ios/Config/TestFlight.local.xcconfig ios/Config/Release.local.xcconfig
-      - name: Generate Xcode project
-        run: cd ios && xcodegen generate
+      - name: Run continuous conversation and Relay regressions
+        run: python3 evaluation/scripts/run_talk_tests.py simulator --simulator 'platform=iOS Simulator,name=iPhone 17,OS=26.4'
+      - name: Save conversation test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: talk-simulator-${{ github.run_attempt }}
+          path: evaluation/results/talk/
+          retention-days: 7
+          if-no-files-found: ignore
       - name: Run Debug unit tests
         run: xcodebuild -project ios/LocalLingo.xcodeproj -scheme LocalLingo -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.4' test
       - name: Compile unsigned PrivateBeta configuration

@@ -7,11 +7,9 @@ struct TalkParticipantPanel: View {
     let turns: [ConversationTurn]
     let pending: [Int: ContinuousDraft]
     let live: ContinuousDraft?
-    let canChangeLanguage: Bool
     let allowsCorrection: Bool
     let playbackID: UUID?
     let canReplay: (ConversationTurn) -> Bool
-    let selectLanguage: () -> Void
     let correct: (UUID) -> Void
     let replay: (UUID) -> Void
 
@@ -23,22 +21,10 @@ struct TalkParticipantPanel: View {
     private var pendingSequences: [Int] { pending.keys.filter { pending[$0]?.language == language }.sorted() }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if canChangeLanguage {
-                Button(action: selectLanguage) {
-                    languageBadge
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("\(side == .traveler ? "Owner" : "Partner") language, \(language.displayName)")
-                .accessibilityIdentifier(side == .traveler ? "talk.traveler-language" : "talk.partner-language")
-            } else {
-                languageBadge
-                    .accessibilityAddTraits(.isHeader)
-            }
-
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 7) {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 7, pinnedViews: [.sectionHeaders]) {
+                    Section {
                         if turns.isEmpty && pendingSequences.isEmpty && liveText == nil {
                             Text(words.placeholder)
                                 .font(.title3).foregroundStyle(.secondary)
@@ -56,64 +42,56 @@ struct TalkParticipantPanel: View {
                                 .accessibilityIdentifier("talk.draft.\(side.rawValue)")
                         }
                         Color.clear.frame(height: 1).id("latest")
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 4).padding(.bottom, 8)
-                }
-                .defaultScrollAnchor(.bottom, for: .alignment)
-                .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: turns.last?.id)
-                .onScrollPhaseChange { _, newPhase, context in
-                    if newPhase == .interacting {
-                        userScrolling = true
-                        following = false
-                    }
-                    if newPhase == .idle && userScrolling {
-                        userScrolling = false
-                        let geometry = context.geometry
-                        following = geometry.visibleRect.maxY >= geometry.contentSize.height - 32
+                    } header: {
+                        Text(language.nativeName)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(TranslatorTheme.ink)
+                            .padding(.vertical, 5)
+                            .accessibilityAddTraits(.isHeader)
+                            .accessibilityIdentifier("talk.seat-language.\(side.rawValue)")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(TranslatorTheme.canvas)
                     }
                 }
-                .onAppear { proxy.scrollTo("latest", anchor: .bottom) }
-                .onChange(of: turns.last) { _, _ in if following { proxy.scrollTo("latest", anchor: .bottom) } }
-                .onChange(of: liveText) { _, _ in if following { proxy.scrollTo("latest", anchor: .bottom) } }
-                .onChange(of: pendingSequences) { _, _ in if following { proxy.scrollTo("latest", anchor: .bottom) } }
-                .overlay(alignment: .bottomTrailing) {
-                    if !following && !userScrolling {
-                        Button {
-                            following = true
-                            proxy.scrollTo("latest", anchor: .bottom)
-                        } label: {
-                            Image(systemName: "arrow.down").frame(width: 44, height: 44)
-                                .foregroundStyle(TranslatorTheme.onAccent)
-                                .background(TranslatorTheme.accent, in: Circle())
-                        }
-                        .accessibilityLabel("Jump to latest")
+                .padding(.vertical, 4)
+            }
+            .defaultScrollAnchor(.center, for: .alignment)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: turns.last?.id)
+            .onScrollPhaseChange { _, newPhase, context in
+                if newPhase == .interacting {
+                    userScrolling = true
+                    following = false
+                }
+                if newPhase == .idle && userScrolling {
+                    userScrolling = false
+                    let geometry = context.geometry
+                    following = geometry.visibleRect.maxY >= geometry.contentSize.height - 32
+                }
+            }
+            .onAppear { proxy.scrollTo("latest", anchor: .bottom) }
+            .onChange(of: turns.last) { _, _ in if following { proxy.scrollTo("latest", anchor: .bottom) } }
+            .onChange(of: liveText) { _, _ in if following { proxy.scrollTo("latest", anchor: .bottom) } }
+            .onChange(of: pendingSequences) { _, _ in if following { proxy.scrollTo("latest", anchor: .bottom) } }
+            .overlay(alignment: .bottomTrailing) {
+                if !following && !userScrolling {
+                    Button {
+                        following = true
+                        proxy.scrollTo("latest", anchor: .bottom)
+                    } label: {
+                        Image(systemName: "arrow.down").frame(width: 44, height: 44)
+                            .foregroundStyle(TranslatorTheme.onAccent)
+                            .background(TranslatorTheme.accent, in: Circle())
                     }
+                    .accessibilityLabel("Jump to latest")
                 }
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 5)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(side == .local ? TranslatorTheme.partnerPanel : TranslatorTheme.canvas)
+        .background(TranslatorTheme.canvas)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("talk.seat.\(side.rawValue)")
-    }
-
-    private var languageBadge: some View {
-        HStack(spacing: 6) {
-            RoundedRectangle(cornerRadius: 2).fill(TranslatorTheme.accent)
-                .frame(width: 8, height: 8).accessibilityHidden(true)
-            Text(language.nativeName).font(.subheadline.bold())
-            if canChangeLanguage {
-                Image(systemName: "chevron.down").font(.caption2.bold())
-            }
-        }
-        .foregroundStyle(TranslatorTheme.accent)
-        .padding(.horizontal, 10).padding(.vertical, 6)
-        .relayCard(radius: 10)
-        .frame(minHeight: 44)
-        .contentShape(Rectangle())
     }
 
     private func draftCard(_ text: String, current: Bool) -> some View {
@@ -254,28 +232,28 @@ struct TalkWaveRibbon: View {
                                 paused: reduceMotion || phase == .quiet || phase == .playback)) { timeline in
             Canvas { context, size in
                 let t = (reduceMotion || phase == .quiet || phase == .playback) ? 0 : timeline.date.timeIntervalSinceReferenceDate
-                let count = 23
-                let spacing: CGFloat = phase == .resolving ? 4 : 6
-                let maxHeight: CGFloat = switch phase {
-                case .quiet: 6
-                case .resolving: 12
+                let spacing: CGFloat = 6
+                let halfWidth = size.width / 2
+                let steps = Int(halfWidth / spacing)
+                guard steps > 0 else { return }
+                let amplitude: CGFloat = switch phase {
+                case .quiet: 11
+                case .resolving: 15
                 case .speaking: 27
-                case .playback: 17
+                case .playback: 18
                 }
-                for i in 0..<count {
-                    let distance = abs(CGFloat(i - count / 2))
-                    let envelope = 1 - distance / CGFloat(count / 2 + 1)
-                    let wave = 0.28 + 0.72 * abs(sin(distance * 0.76 + t * (phase == .speaking ? 6 : 3)))
-                    let height = 3 + maxHeight * envelope * wave
-                    let rect = CGRect(x: size.width / 2 + CGFloat(i - count / 2) * spacing - 1.5,
-                                      y: (size.height - height) / 2, width: 3, height: height)
+                for i in -steps...steps {
+                    let offset = CGFloat(i) * spacing
+                    let envelope = max(0, 1 - abs(offset) / halfWidth)
+                    let wave = 0.3 + 0.7 * abs(sin(abs(offset) * 0.045 + t * (phase == .speaking ? 6 : 3)))
+                    let height = 2.5 + amplitude * envelope * wave
+                    let rect = CGRect(x: halfWidth + offset - 1.5, y: (size.height - height) / 2, width: 3, height: height)
                     context.fill(Path(roundedRect: rect, cornerRadius: 1.5),
-                                 with: .color(TranslatorTheme.signal))
+                                 with: .color(TranslatorTheme.accent.opacity(0.78)))
                 }
             }
         }
         .frame(height: 32)
-        .background(TranslatorTheme.ribbon)
         .accessibilityHidden(true)
     }
 }

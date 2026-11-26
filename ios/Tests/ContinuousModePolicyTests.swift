@@ -121,7 +121,7 @@ final class ContinuousModePolicyTests: XCTestCase {
         XCTAssertTrue(ContinuousModePolicy.canCorrectLanguage(
             in: .catchingUp(pendingTurns: 1)
         ))
-        XCTAssertTrue(ContinuousModePolicy.canCorrectLanguage(in: .pausedByUser))
+        XCTAssertTrue(ContinuousModePolicy.canCorrectLanguage(in: .paused(.user)))
 
         let blockedStates: [ContinuousConversationState] = [
             .idle,
@@ -253,7 +253,8 @@ final class ContinuousTalkPresentationTests: XCTestCase {
             (.catchingUp(pendingTurns: 2), .pause),
             (.pausedForPlayback, .unavailable),
             (.pausing, .unavailable),
-            (.pausedByUser, .resume),
+            (.paused(.user), .resume),
+            (.paused(.silence), .resume),
             (.resuming, .unavailable),
             (.ending, .unavailable),
             (.ended, .start),
@@ -326,7 +327,7 @@ final class ContinuousTalkPresentationTests: XCTestCase {
             .listening,
             .catchingUp(pendingTurns: 1),
             .pausedForPlayback,
-            .pausedByUser,
+            .paused(.user),
         ] {
             XCTAssertTrue(
                 ContinuousTalkPresentation.canEndSession(in: state),
@@ -383,7 +384,7 @@ final class ContinuousTalkPresentationTests: XCTestCase {
     func testUserPauseTransitionStatesRemainActive() {
         for state in [
             ContinuousConversationState.pausing,
-            .pausedByUser,
+            .paused(.user),
             .resuming,
         ] {
             XCTAssertTrue(state.isRunning)
@@ -510,7 +511,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
         harness.coordinator.speakTranslations = true
         harness.coordinator.pauseSession()
         let paused = await waitUntil {
-            harness.coordinator.state == .pausedByUser
+            harness.coordinator.state == .paused(.user)
                 && harness.coordinator.turns.count == 1
         }
         XCTAssertTrue(paused)
@@ -549,7 +550,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
         harness.coordinator.speakTranslations = true
         harness.coordinator.pauseSession()
         let paused = await waitUntil {
-            harness.coordinator.state == .pausedByUser
+            harness.coordinator.state == .paused(.user)
                 && harness.coordinator.turns.count == 1
         }
         XCTAssertTrue(paused)
@@ -584,7 +585,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
         harness.coordinator.speakTranslations = true
         harness.coordinator.pauseSession()
         let paused = await waitUntil {
-            harness.coordinator.state == .pausedByUser
+            harness.coordinator.state == .paused(.user)
                 && harness.coordinator.turns.count == 1
         }
         XCTAssertTrue(paused)
@@ -617,7 +618,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
         harness.coordinator.speakTranslations = true
         harness.coordinator.pauseSession()
         let paused = await waitUntil {
-            harness.coordinator.state == .pausedByUser
+            harness.coordinator.state == .paused(.user)
                 && harness.coordinator.turns.count == 1
         }
         XCTAssertTrue(paused)
@@ -648,7 +649,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
         XCTAssertTrue(started)
         harness.coordinator.pauseSession()
         let paused = await waitUntil {
-            harness.coordinator.state == .pausedByUser
+            harness.coordinator.state == .paused(.user)
                 && harness.coordinator.turns.count == 1
         }
         XCTAssertTrue(paused)
@@ -698,7 +699,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
         XCTAssertTrue(started)
         harness.coordinator.pauseSession()
         let paused = await waitUntil {
-            harness.coordinator.state == .pausedByUser
+            harness.coordinator.state == .paused(.user)
                 && harness.coordinator.turns.count == 1
         }
         XCTAssertTrue(paused)
@@ -747,7 +748,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
         await assertEventually { harness.coordinator.state == .listening }
         harness.coordinator.pauseSession()
         await assertEventually {
-            harness.coordinator.state == .pausedByUser
+            harness.coordinator.state == .paused(.user)
                 && harness.coordinator.turns.count == 1
         }
         guard let firstTurnID = harness.coordinator.turns.first?.id else {
@@ -762,14 +763,14 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
                 .init(text: "Hola", localeIdentifier: "es-ES")
             ]
                 && harness.coordinator.reviewedPlaybackTurnID == nil
-                && harness.coordinator.state == .pausedByUser
+                && harness.coordinator.state == .paused(.user)
         }
 
         harness.coordinator.resumeSession()
         await assertEventually { harness.coordinator.state == .listening }
         harness.coordinator.pauseSession()
         await assertEventually {
-            harness.coordinator.state == .pausedByUser
+            harness.coordinator.state == .paused(.user)
                 && harness.coordinator.turns.count == 2
         }
         guard let secondTurnID = harness.coordinator.turns.last?.id else {
@@ -785,7 +786,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
                 .init(text: "Thank you", localeIdentifier: "en-US"),
             ]
                 && harness.coordinator.reviewedPlaybackTurnID == nil
-                && harness.coordinator.state == .pausedByUser
+                && harness.coordinator.state == .paused(.user)
         }
         XCTAssertNil(harness.coordinator.errorMessage)
         harness.coordinator.cancelSession()
@@ -838,7 +839,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
                 ], label)
 
                 harness.coordinator.pauseSession()
-                await assertEventually { harness.coordinator.state == .pausedByUser }
+                await assertEventually { harness.coordinator.state == .paused(.user) }
                 for (index, turn) in turns.enumerated() {
                     harness.coordinator.replayTranslation(for: turn.id)
                     await assertEventually {
@@ -874,7 +875,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
         await assertEventually { harness.coordinator.state == .listening }
         harness.coordinator.pauseSession()
         await assertEventually {
-            harness.coordinator.state == .pausedByUser
+            harness.coordinator.state == .paused(.user)
                 && harness.coordinator.turns.count == 1
         }
         harness.coordinator.resumeSession()
@@ -931,7 +932,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
         await assertEventually { harness.coordinator.state == .listening }
         harness.coordinator.pauseSession()
         await assertEventually {
-            harness.coordinator.state == .pausedByUser
+            harness.coordinator.state == .paused(.user)
                 && harness.coordinator.turns.count == 1
         }
         guard let turn = harness.coordinator.turns.first else {
@@ -945,7 +946,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
 
         XCTAssertTrue(harness.synthesis.spoken.isEmpty)
         XCTAssertNil(harness.coordinator.reviewedPlaybackTurnID)
-        XCTAssertEqual(harness.coordinator.state, .pausedByUser)
+        XCTAssertEqual(harness.coordinator.state, .paused(.user))
         harness.coordinator.cancelSession()
     }
 
@@ -970,7 +971,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
         await assertEventually { harness.coordinator.state == .listening }
         harness.coordinator.pauseSession()
         await assertEventually {
-            harness.coordinator.state == .pausedByUser
+            harness.coordinator.state == .paused(.user)
                 && harness.coordinator.turns.count == 1
         }
         harness.coordinator.endSession()
@@ -1058,7 +1059,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
         XCTAssertTrue(started)
         harness.coordinator.pauseSession()
         let paused = await waitUntil {
-            harness.coordinator.state == .pausedByUser
+            harness.coordinator.state == .paused(.user)
                 && harness.coordinator.turns.count == 1
         }
         XCTAssertTrue(paused)
@@ -1097,7 +1098,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
         XCTAssertTrue(started)
         harness.coordinator.pauseSession()
         let paused = await waitUntil {
-            harness.coordinator.state == .pausedByUser
+            harness.coordinator.state == .paused(.user)
                 && harness.coordinator.turns.count == 1
         }
         XCTAssertTrue(paused)
@@ -1149,7 +1150,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
         XCTAssertTrue(started)
         harness.coordinator.pauseSession()
         let paused = await waitUntil {
-            harness.coordinator.state == .pausedByUser
+            harness.coordinator.state == .paused(.user)
                 && harness.coordinator.turns.count == 1
         }
         XCTAssertTrue(paused)
@@ -1205,7 +1206,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
         XCTAssertTrue(started)
         harness.coordinator.pauseSession()
         let firstPauseFinished = await waitUntil {
-            harness.coordinator.state == .pausedByUser
+            harness.coordinator.state == .paused(.user)
         }
         XCTAssertTrue(firstPauseFinished)
 
@@ -1216,7 +1217,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
         XCTAssertTrue(resumed)
         harness.coordinator.pauseSession()
         let secondPauseFinished = await waitUntil {
-            harness.coordinator.state == .pausedByUser
+            harness.coordinator.state == .paused(.user)
                 && harness.coordinator.turns.count == 2
         }
         XCTAssertTrue(secondPauseFinished)
@@ -1258,6 +1259,129 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testBundledSpeechDetectorAutoPausesOnTwentySecondsOfSilentAudio() async throws {
+        let harness = makeHarness(finishBatches: [], decisions: [], detector: SileroVoiceActivityDetector())
+        let talk = harness.coordinator
+        talk.start(pair: harness.pair)
+        defer { talk.cancelSession() }
+        await assertEventually { talk.state == .listening }
+        try await feedSilenceUntilPause(harness.capture)
+        await assertEventually { talk.state == .paused(.silence) && !talk.isCaptureActive }
+    }
+
+    @MainActor
+    func testInstalledHindiEnglishListenerPausesAndResumesAfterSilentAudio() async throws {
+#if targetEnvironment(simulator)
+        throw XCTSkip("Requires installed iPhone language models.")
+#else
+        let pair = LanguagePair(traveler: .englishUS, local: .hindiIndia)
+        let speech = AppleSpeechRecognitionEngine()
+        let readiness = await speech.continuousAssetReadiness(pair: pair)
+        try XCTSkipUnless(readiness == .ready, "Requires installed English and Hindi listening assets.")
+        let harness = makeHarness(finishBatches: [], decisions: [])
+        let talk = ContinuousConversationCoordinator(
+            capture: harness.capture, voiceActivity: SileroVoiceActivityDetector(),
+            recognition: AppleContinuousSpeechRecognizer(), translation: ContinuousBidirectionalTranslationEngine(),
+            playback: PlaybackService(synthesis: harness.synthesis), settings: harness.settings, history: harness.history
+        )
+        defer { talk.cancelSession() }
+        func wait(for state: ContinuousConversationState) async throws {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(20))
+            while talk.state != state {
+                if let error = talk.errorMessage { throw PipelineError.server(error) }
+                guard ContinuousClock.now < deadline else { throw PipelineError.server("Timed out in \(talk.state)") }
+                try await Task.sleep(for: .milliseconds(25))
+            }
+        }
+        talk.start(pair: pair)
+        try await wait(for: .listening)
+        try await feedSilenceUntilPause(harness.capture, realTime: true)
+        try await wait(for: .paused(.silence))
+        XCTAssertFalse(talk.isCaptureActive)
+        XCTAssertTrue(talk.turns.isEmpty)
+        talk.resumeSession()
+        try await wait(for: .listening)
+        XCTAssertTrue(talk.isCaptureActive)
+#endif
+    }
+
+    @MainActor
+    private func feedSilenceUntilPause(_ capture: FakeContinuousCapture, realTime: Bool = false) async throws {
+        let rate = 16_000.0
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: rate, channels: 1))
+        let silence = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1_024))
+        silence.frameLength = silence.frameCapacity
+        silence.floatChannelData![0].initialize(repeating: 0, count: Int(silence.frameLength))
+        var samples: AVAudioFramePosition = 0
+        while Double(samples) / rate < 21 {
+            let time = AVAudioTime(sampleTime: samples, atRate: rate)
+            let action = try await capture.emit(silence, at: time)
+            samples += AVAudioFramePosition(silence.frameLength)
+            if case .finish = action { break }
+            if realTime { try await Task.sleep(for: .seconds(Double(silence.frameLength) / rate)) }
+        }
+        XCTAssertGreaterThanOrEqual(Double(samples) / rate, 20)
+        XCTAssertLessThan(Double(samples) / rate, 20.5)
+    }
+
+    @MainActor
+    func testTwentySecondsOfSilentInputPausesAndResumeOpensAFreshWindow() async throws {
+        let harness = makeHarness(finishBatches: [], decisions: [])
+        let talk = harness.coordinator
+        talk.start(pair: harness.pair)
+        await assertEventually { talk.state == .listening }
+        for start in [100, 500] {
+            _ = try await harness.capture.emitBuffer(at: Double(start))
+            _ = try await harness.capture.emitBuffer(at: Double(start) + 19.99)
+            XCTAssertEqual(talk.state, .listening)
+            _ = try await harness.capture.emitBuffer(at: Double(start) + 20)
+            await assertEventually { talk.state == .paused(.silence) }
+            XCTAssertFalse(talk.isCaptureActive)
+            XCTAssertEqual(talk.statusText, "Paused after 20 seconds of silence")
+            XCTAssertTrue(talk.turns.isEmpty)
+            talk.resumeSession()
+            await assertEventually { talk.state == .listening }
+        }
+        talk.cancelSession()
+    }
+
+    @MainActor
+    func testSpeechResetsSilenceAndPendingTranslationSurvivesAutoPause() async throws {
+        let start = CMTime(value: 19, timescale: 1)
+        let end = CMTime(value: 34, timescale: 1)
+        let harness = makeHarness(
+            finishBatches: [],
+            processBatches: [[], [.speechStarted(at: start)], [],
+                             [.speechEnded(range: CMTimeRange(start: start, end: end), reason: .silence)]],
+            decisions: [Self.decision(text: "hello")], translations: ["Hola"]
+        )
+        let talk = harness.coordinator
+        harness.translation.delayNextTranslation = true
+        talk.start(pair: harness.pair)
+        await assertEventually { talk.state == .listening }
+        for seconds in [0, 19, 30, 35] {
+            _ = try await harness.capture.emitBuffer(at: Double(seconds))
+            XCTAssertTrue(talk.isCaptureActive)
+        }
+        await assertEventually { harness.translation.resumeTranslation != nil }
+        _ = try await harness.capture.emitBuffer(at: 53.99)
+        XCTAssertTrue(talk.isCaptureActive)
+        _ = try await harness.capture.emitBuffer(at: 54)
+        await assertEventually { !talk.isCaptureActive }
+        harness.translation.resumeTranslation?.resume()
+        await assertEventually { talk.state == .paused(.silence) }
+        let turn = try XCTUnwrap(talk.turns.first)
+        XCTAssertEqual(turn.translatedText, "Hola")
+        talk.replayTranslation(for: turn.id)
+        await assertEventually { harness.synthesis.spoken.count == 1 && talk.state == .paused(.silence) }
+        XCTAssertFalse(talk.isCaptureActive)
+        talk.resumeSession()
+        await assertEventually { talk.state == .listening }
+        XCTAssertEqual(talk.turns.map(\.id), [turn.id])
+        talk.cancelSession()
+    }
+
+    @MainActor
     func testUserPauseFinalizesAndDrainsBeforeResumeStartsFreshInput() async throws {
         let firstRange = CMTimeRange(
             start: .zero,
@@ -1289,7 +1413,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
         let previousFailure = harness.recognition.onFailure
         harness.coordinator.pauseSession()
         let firstPauseFinished = await waitUntil {
-            harness.coordinator.state == .pausedByUser
+            harness.coordinator.state == .paused(.user)
         }
         XCTAssertTrue(firstPauseFinished)
         XCTAssertEqual(harness.coordinator.turns.map(\.sequence), [0])
@@ -1315,7 +1439,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
 
         harness.coordinator.pauseSession()
         let secondPauseFinished = await waitUntil {
-            harness.coordinator.state == .pausedByUser
+            harness.coordinator.state == .paused(.user)
         }
         XCTAssertTrue(secondPauseFinished)
         XCTAssertEqual(harness.coordinator.turns.map(\.sequence), [0, 1])
@@ -1356,7 +1480,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
         XCTAssertTrue(started)
         harness.coordinator.pauseSession()
         let paused = await waitUntil {
-            harness.coordinator.state == .pausedByUser
+            harness.coordinator.state == .paused(.user)
         }
         XCTAssertTrue(paused)
         XCTAssertEqual(harness.coordinator.turns.map(\.sequence), [0])
@@ -1376,7 +1500,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
 
         harness.coordinator.pauseSession()
         let pausedAfterRetry = await waitUntil {
-            harness.coordinator.state == .pausedByUser
+            harness.coordinator.state == .paused(.user)
         }
         XCTAssertTrue(pausedAfterRetry)
         XCTAssertEqual(harness.coordinator.turns.map(\.sequence), [0, 1])
@@ -1758,11 +1882,11 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
             local: .spanishSpain
         ),
         translations: [String] = [],
-        access: (any TranslationAuthorizing)? = nil
+        access: (any TranslationAuthorizing)? = nil,
+        detector: (any VoiceActivityDetecting)? = nil
     ) -> (
         coordinator: ContinuousConversationCoordinator,
         capture: FakeContinuousCapture,
-        voiceActivity: FakeContinuousVoiceActivity,
         recognition: FakeContinuousRecognition,
         translation: FakeContinuousTranslation,
         synthesis: FakeContinuousSynthesis,
@@ -1771,7 +1895,7 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
         pair: LanguagePair
     ) {
         let capture = FakeContinuousCapture()
-        let voiceActivity = FakeContinuousVoiceActivity(
+        let voiceActivity = detector ?? FakeContinuousVoiceActivity(
             finishBatches: finishBatches,
             processBatches: processBatches
         )
@@ -1797,7 +1921,6 @@ final class ContinuousConversationCoordinatorTests: XCTestCase {
         return (
             coordinator,
             capture,
-            voiceActivity,
             recognition,
             translation,
             synthesis,
@@ -1904,14 +2027,14 @@ final class FakeContinuousCapture: MicrophoneCapturing {
         onBuffer = nil
     }
 
-    func emitBuffer() async throws -> CaptureBufferDisposition {
+    func emitBuffer(at seconds: Double = 0) async throws -> CaptureBufferDisposition {
         let format = AVAudioFormat(
             standardFormatWithSampleRate: 16_000,
             channels: 1
         )!
         let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 160)!
         buffer.frameLength = 160
-        return try await emit(buffer, at: AVAudioTime(sampleTime: 0, atRate: 16_000))
+        return try await emit(buffer, at: AVAudioTime(sampleTime: Int64((seconds * 16_000).rounded()), atRate: 16_000))
     }
 
     func emit(_ buffer: AVAudioPCMBuffer, at time: AVAudioTime) async throws -> CaptureBufferDisposition {
@@ -1949,7 +2072,7 @@ private actor FakeContinuousVoiceActivity: VoiceActivityDetecting {
         return VoiceActivityResult(
             probabilities: [],
             events: events,
-            processedThrough: .zero
+            processedThrough: CMTime(value: input.audioTime.sampleTime, timescale: CMTimeScale(input.audioTime.sampleRate))
         )
     }
 
@@ -2128,7 +2251,7 @@ extension ContinuousConversationCoordinatorTests {
         await assertEventually { talk.state == .listening }
         talk.speakTranslations = true
         talk.pauseSession()
-        await assertEventually { talk.state == .pausedByUser && talk.turns.count == 1 }
+        await assertEventually { talk.state == .paused(.user) && talk.turns.count == 1 }
         let pending = try XCTUnwrap(talk.turns.first)
         XCTAssertTrue(pending.warnings.contains(.unresolvedSpeaker))
         XCTAssertFalse(talk.canReplayTranslation(for: pending))
@@ -2153,7 +2276,7 @@ extension ContinuousConversationCoordinatorTests {
         await assertEventually { talk.state == .listening }
         talk.speakTranslations = true
         talk.pauseSession()
-        await assertEventually { talk.state == .pausedByUser && talk.turns.count == 1 }
+        await assertEventually { talk.state == .paused(.user) && talk.turns.count == 1 }
         let pending = try XCTUnwrap(talk.turns.first)
         XCTAssertTrue(pending.warnings.contains(.unresolvedSpeaker))
         XCTAssertTrue(harness.translation.calls.isEmpty)

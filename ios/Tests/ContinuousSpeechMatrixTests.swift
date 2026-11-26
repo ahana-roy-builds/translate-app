@@ -227,7 +227,7 @@ final class ContinuousSpeechMatrixTests: XCTestCase {
                 let committedBeforeReply = talk.turns.count
                 try await feed(pair.local, untilBoundary: false)
                 talk.pauseSession()
-                try await wait(12) { talk.state == .pausedByUser }
+                try await wait(12) { talk.state == .paused(.user) }
                 XCTAssertEqual(talk.turns.map(\.sourceLocale), [pair.traveler.code, pair.local.code])
                 talk.resumeSession()
                 try await wait(12) { talk.state == .listening && capture.isActive }
@@ -362,6 +362,15 @@ final class ContinuousSpeechMatrixTests: XCTestCase {
                         try await wait(20) { talk.state == .listening && capture.isActive }
                         d["autoVoice"] = playback.completed.count > synthesesBefore ? playback.completed.last : nil
                         d["lastSynthesizedText"] = playback.completed.count > synthesesBefore ? playback.lastText : nil
+                        if let turn = result.first {
+                            let shouldSpeak = !turn.warnings.contains(.unresolvedSpeaker)
+                                && !turn.warnings.contains(.entityMismatch) && !(pair.isEnglishHindi && !turn.entities.isEmpty)
+                            XCTAssertEqual(playback.completed.count - synthesesBefore, shouldSpeak ? 1 : 0)
+                            if shouldSpeak {
+                                XCTAssertEqual(d["autoVoice"]?.replacingOccurrences(of: "_", with: "-"), target.code)
+                                XCTAssertEqual(d["lastSynthesizedText"], turn.translatedText)
+                            }
+                        }
                     }
                     record("spoken", d)
                 }
@@ -372,6 +381,7 @@ final class ContinuousSpeechMatrixTests: XCTestCase {
                 var d = [
                     "pair": key, "expected": source.code, "idx": String(idx), "target": turn.targetLocale,
                     "entityMismatch": String(turn.warnings.contains(.entityMismatch)),
+                    "unresolvedSpeaker": String(turn.warnings.contains(.unresolvedSpeaker)),
                 ]
                 if talk.canReplayTranslation(for: turn) {
                     let before = playback.completed.count

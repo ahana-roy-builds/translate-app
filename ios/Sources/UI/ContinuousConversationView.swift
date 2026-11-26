@@ -17,7 +17,7 @@ struct ContinuousTalkPresentation {
             .start
         case .listening, .catchingUp:
             .pause
-        case .pausedByUser, .interrupted:
+        case .paused, .interrupted:
             .resume
         case .failed:
             .retry
@@ -43,7 +43,7 @@ struct ContinuousTalkPresentation {
 
     static func canEndSession(in state: ContinuousConversationState) -> Bool {
         switch state {
-        case .preparing, .listening, .catchingUp, .pausedForPlayback, .pausedByUser:
+        case .preparing, .listening, .catchingUp, .pausedForPlayback, .paused:
             true
         case .idle, .pausing, .resuming, .ending, .ended, .interrupted, .failed:
             false
@@ -114,6 +114,7 @@ struct ContinuousConversationView: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
+    @State private var bottomSeat: SpeakerSide = .traveler
     @State private var languagePickerSide: SpeakerSide?
     @State private var showVoiceDetails = false
     @State private var showSafetyInformation = false
@@ -152,7 +153,7 @@ struct ContinuousConversationView: View {
         .background(TranslatorTheme.canvas)
         .navigationTitle("Speak Duet")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(coordinator.isRunning ? .hidden : .visible, for: .tabBar)
+        .toolbar(coordinator.isRunning && !showsWaveLayout ? .hidden : .visible, for: .tabBar)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
@@ -164,7 +165,7 @@ struct ContinuousConversationView: View {
                 .accessibilityIdentifier("talk.switch-layout")
                 speakerPreferenceButton
 
-                if !coordinator.isRunning {
+                if showsWaveLayout || !coordinator.isRunning {
                     overflowMenu
                         .disabled(coordinator.isReviewedPlaybackActive)
                 }
@@ -194,8 +195,16 @@ struct ContinuousConversationView: View {
             confirmedSetupNeeded = !coreReady
             if coreReady && primaryActionEnabled { performReadyAction() }
         }
-        .onDisappear { recheckBeforeStarting = false }
-        .onChange(of: settings.value.pair) { _, _ in resetStartCheck() }
+        .onDisappear {
+            recheckBeforeStarting = false
+            if showsWaveLayout && coordinator.isSessionActive {
+                coordinator.handleSceneActivity(isActive: false)
+            }
+        }
+        .onChange(of: settings.value.pair) { _, _ in
+            bottomSeat = .traveler
+            resetStartCheck()
+        }
         .onChange(of: settings.value.continuousTranslationStrategy) { _, _ in resetStartCheck() }
         .environmentObject(coordinator)
         .onAppear {
@@ -231,52 +240,51 @@ struct ContinuousConversationView: View {
 
     private var faceToFaceConversation: some View {
         VStack(spacing: 0) {
-            seat(.local)
-                .rotationEffect(.degrees(180))
-            TalkWaveRibbon(phase: wavePhase)
-            seat(.traveler)
-            Divider()
-            HStack(spacing: 12) {
-                primaryMicrophoneButton(diameter: 48)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(coordinator.state == .idle && canOfferStart && !recheckBeforeStarting ? "Start conversation" : wavePhase.status ?? emptyStateTitle)
-                        .font(.subheadline.weight(.semibold))
-                        .accessibilityFocused($statusFocused)
-                        .accessibilityIdentifier("talk.session-status")
-                    if let error = coordinator.errorMessage {
-                        Text(error).foregroundStyle(.red).font(.caption)
-                    } else if needsLanguageSetup {
-                        languageSetupLink
-                    } else if shouldShowVoiceNotice {
-                        Button(spokenOutputNoticeTitle) { showVoiceDetails = true }
-                            .font(.caption)
-                            .popover(isPresented: $showVoiceDetails) {
-                                Text(spokenOutputNoticeMessage).padding().presentationCompactAdaptation(.popover)
-                            }
-                    } else {
-                        Label("On device", systemImage: "lock.fill")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                Spacer(minLength: 0)
-                if showsEndButton {
-                    Button(role: .destructive) { coordinator.endSession() } label: {
-                        Image(systemName: "stop.fill").frame(width: 44, height: 44)
-                    }
-                    .disabled(!canEndSession)
-                    .accessibilityLabel("End conversation")
-                    .accessibilityIdentifier("talk.end")
-                }
+            VStack(spacing: 0) {
+                languageHeader
+                seat(bottomSeat.other)
+                    .rotationEffect(.degrees(180))
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 6)
-            .background(TranslatorTheme.canvas)
+            .frame(maxHeight: .infinity)
+            relayConversationControl
+            seat(bottomSeat)
         }
         .onChange(of: coordinator.turns.last?.id) { _, id in
             if id != nil, UIAccessibility.isVoiceOverRunning, let turn = coordinator.turns.last {
                 UIAccessibility.post(notification: .announcement, argument: turn.translatedText)
             }
         }
+    }
+
+    private var relayConversationControl: some View {
+        VStack(spacing: 4) {
+            ZStack {
+                TalkWaveRibbon(phase: wavePhase)
+                    .allowsHitTesting(false)
+                primaryMicrophoneButton(diameter: 60)
+                    .background(TranslatorTheme.softAccent, in: Circle().inset(by: -4))
+            }
+            Text(coordinator.state == .idle && canOfferStart && !recheckBeforeStarting
+                 ? "Start conversation" : wavePhase.status ?? emptyStateTitle)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(TranslatorTheme.ink)
+                .accessibilityFocused($statusFocused)
+                .accessibilityIdentifier("talk.session-status")
+            if let error = coordinator.errorMessage {
+                Text(error).foregroundStyle(.red).font(.caption)
+            } else if needsLanguageSetup {
+                languageSetupLink
+            } else if shouldShowVoiceNotice {
+                Button(spokenOutputNoticeTitle) { showVoiceDetails = true }
+                    .font(.caption)
+                    .popover(isPresented: $showVoiceDetails) {
+                        Text(spokenOutputNoticeMessage).padding().presentationCompactAdaptation(.popover)
+                    }
+            }
+        }
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 7)
     }
 
     private var wavePhase: TalkWavePhase {
@@ -289,13 +297,12 @@ struct ContinuousConversationView: View {
         return TalkParticipantPanel(
             side: side, language: language, turns: coordinator.turns,
             pending: coordinator.pendingDrafts, live: coordinator.draft,
-            canChangeLanguage: !pairControlsDisabled,
             allowsCorrection: coordinator.canRequestLanguageCorrection,
             playbackID: coordinator.reviewedPlaybackTurnID,
             canReplay: coordinator.canReplayTranslation,
-            selectLanguage: { openLanguagePicker(for: side) },
             correct: coordinator.swapLanguage, replay: coordinator.replayTranslation
         )
+        .id(side)
     }
 
     @ViewBuilder
@@ -334,66 +341,70 @@ struct ContinuousConversationView: View {
 
     private var languageHeader: some View {
         VStack(spacing: 10) {
-            HStack(spacing: 10) {
-                Button {
-                    openLanguagePicker(for: .traveler)
-                } label: {
-                    languageTile(
-                        nativeName: settings.value.pair.traveler.nativeName,
-                        displayName: settings.value.pair.traveler.displayName,
-                        isInteractive: true
-                    )
-                }
-                .buttonStyle(.plain)
-                .disabled(pairControlsDisabled)
-                .accessibilityLabel(
-                    "First language, \(settings.value.pair.traveler.displayName)"
-                )
-                .accessibilityHint("Opens the language picker")
-                .accessibilityIdentifier("talk.traveler-language")
-
+            let first = showsWaveLayout ? bottomSeat : .traveler
+            HStack(spacing: 4) {
+                languagePickerButton(for: first, leading: true)
                 Button(action: swapLanguagePair) {
                     Image(systemName: "arrow.left.arrow.right")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(TranslatorTheme.accent)
-                        .frame(minWidth: 44, minHeight: 44)
+                        .frame(width: 32, height: 32)
+                        .background(showsWaveLayout ? TranslatorTheme.softAccent : .clear, in: Circle())
+                        .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .disabled(pairControlsDisabled)
+                .disabled(!canFlipSeats && pairControlsDisabled)
                 .accessibilityLabel("Swap conversation languages")
                 .accessibilityIdentifier("talk.swap-languages")
-
-                Button {
-                    openLanguagePicker(for: .local)
-                } label: {
-                    languageTile(
-                        nativeName: settings.value.pair.local.nativeName,
-                        displayName: settings.value.pair.local.displayName,
-                        isInteractive: true
-                    )
+                languagePickerButton(for: first.other, leading: false)
+            }
+            .padding(.horizontal, showsWaveLayout ? 10 : 0)
+            .background {
+                if showsWaveLayout {
+                    RoundedRectangle(cornerRadius: 13).fill(TranslatorTheme.card)
+                        .overlay { RoundedRectangle(cornerRadius: 13).strokeBorder(TranslatorTheme.edge) }
                 }
-                .buttonStyle(.plain)
-                .disabled(pairControlsDisabled)
-                .accessibilityLabel(
-                    "Second language, \(settings.value.pair.local.displayName)"
-                )
-                .accessibilityHint("Opens the language picker")
-                .accessibilityIdentifier("talk.partner-language")
             }
 
-            Label("On device", systemImage: "lock.fill")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.secondary)
-                .accessibilityLabel(
-                    "On device. Microphone, language detection, and translation stay on this iPhone."
-                )
+            if !showsWaveLayout {
+                Label("On device", systemImage: "lock.fill")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(
+                        "On device. Microphone, language detection, and translation stay on this iPhone."
+                    )
+            }
         }
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 12)
+        .padding(.top, 6)
+        .padding(.bottom, showsWaveLayout ? 6 : 12)
         .background(TranslatorTheme.canvas)
+    }
+
+    private func languagePickerButton(for side: SpeakerSide, leading: Bool) -> some View {
+        let language = settings.value.pair.source(for: side)
+        return Button {
+            openLanguagePicker(for: side)
+        } label: {
+            if showsWaveLayout {
+                HStack(spacing: 5) {
+                    Text(language.nativeName).font(.headline).lineLimit(2)
+                    Image(systemName: "chevron.down").font(.caption2.bold())
+                }
+                .foregroundStyle(TranslatorTheme.accent)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: leading ? .leading : .trailing)
+                .contentShape(Rectangle())
+            } else {
+                languageTile(nativeName: language.nativeName, displayName: language.displayName, isInteractive: true)
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(pairControlsDisabled)
+        .accessibilityLabel("\(leading ? "First" : "Second") language, \(language.displayName)")
+        .accessibilityHint("Opens the language picker")
+        .accessibilityIdentifier(leading ? "talk.traveler-language" : "talk.partner-language")
     }
 
     private func languageTile(
@@ -524,7 +535,7 @@ struct ContinuousConversationView: View {
 
     private func primaryMicrophoneButton(diameter: CGFloat) -> some View {
         Button(action: performPrimaryAction) {
-            Image(systemName: primaryActionIcon)
+            Image(systemName: showsWaveLayout && primaryAction == .pause ? "mic.fill" : primaryActionIcon)
                 .font(.system(size: diameter * 0.34, weight: .semibold))
                 .frame(width: diameter, height: diameter)
                 .foregroundStyle(TranslatorTheme.onAccent)
@@ -532,7 +543,7 @@ struct ContinuousConversationView: View {
                     primaryActionEnabled
                         ? TranslatorTheme.accent
                         : Color(uiColor: .systemGray4),
-                    in: RoundedRectangle(cornerRadius: diameter * 0.32)
+                    in: RoundedRectangle(cornerRadius: diameter * (showsWaveLayout ? 0.5 : 0.32))
                 )
                 .contentShape(Rectangle())
         }
@@ -565,39 +576,43 @@ struct ContinuousConversationView: View {
 
     private var overflowMenu: some View {
         Menu {
-            if showsWaveLayout {
-                Button("Swap conversation languages", systemImage: "arrow.left.arrow.right", action: swapLanguagePair)
-                    .disabled(pairControlsDisabled)
-            }
-            Button {
-                settings.useDefaultLanguage()
-            } label: {
-                Label("Use my default language", systemImage: "person.crop.circle")
-            }
-            NavigationLink {
-                ConversationView(
-                    orchestrator: conversation,
-                    settings: settings,
-                    capabilities: capabilities
-                )
-            } label: {
-                Label("Manual Conversation", systemImage: "mic.badge.plus")
-            }
-            .disabled(!canStartManualConversation)
+            if coordinator.isRunning {
+                Button("End conversation", systemImage: "stop.fill", role: .destructive) {
+                    coordinator.endSession()
+                }
+                .disabled(!canEndSession)
+                .accessibilityIdentifier("talk.end")
+            } else {
+                Button {
+                    settings.useDefaultLanguage()
+                } label: {
+                    Label("Use my default language", systemImage: "person.crop.circle")
+                }
+                NavigationLink {
+                    ConversationView(
+                        orchestrator: conversation,
+                        settings: settings,
+                        capabilities: capabilities
+                    )
+                } label: {
+                    Label("Manual Conversation", systemImage: "mic.badge.plus")
+                }
+                .disabled(!canStartManualConversation)
 
-            NavigationLink {
-                LanguagePacksView(
-                    manager: languagePacks,
-                    settings: settings
-                )
-            } label: {
-                Label("Manage Language Packs", systemImage: "square.stack.3d.up")
-            }
+                NavigationLink {
+                    LanguagePacksView(
+                        manager: languagePacks,
+                        settings: settings
+                    )
+                } label: {
+                    Label("Manage Language Packs", systemImage: "square.stack.3d.up")
+                }
 
-            Button {
-                showSafetyInformation = true
-            } label: {
-                Label("Privacy & Safety", systemImage: "hand.raised")
+                Button {
+                    showSafetyInformation = true
+                } label: {
+                    Label("Privacy & Safety", systemImage: "hand.raised")
+                }
             }
         } label: {
             Image(systemName: "ellipsis.circle")
@@ -855,8 +870,8 @@ struct ContinuousConversationView: View {
             "Preparing"
         case .pausing:
             "Finishing what you said"
-        case .pausedByUser, .interrupted:
-            "Listening paused"
+        case .paused, .interrupted:
+            coordinator.statusText
         case .resuming:
             "Resuming"
         case .listening, .catchingUp:
@@ -879,7 +894,7 @@ struct ContinuousConversationView: View {
             return canOfferStart
                 ? "Tap the microphone and speak either language."
                 : "Download the selected languages to start."
-        case .pausedByUser:
+        case .paused:
             return "Tap resume when you are ready to continue."
         case .ended:
             return "Tap the microphone to start a new conversation."
@@ -894,7 +909,7 @@ struct ContinuousConversationView: View {
         switch coordinator.state {
         case .failed:
             "exclamationmark.triangle"
-        case .pausedByUser, .interrupted:
+        case .paused, .interrupted:
             "pause.circle"
         case .pausedForPlayback:
             "speaker.wave.2.fill"
@@ -985,15 +1000,26 @@ struct ContinuousConversationView: View {
         for side: SpeakerSide
     ) {
         languagePickerSide = nil
-        guard let pair = settings.value.pair.replacing(side, with: language),
+        guard language != settings.value.pair.source(for: side),
+              let pair = settings.value.pair.replacing(side, with: language),
               LocalConversationLanguagePolicy.supports(pair) else {
             return
         }
-        applyLanguagePair(pair)
+        applyLanguagePair(showsWaveLayout && bottomSeat == .local ? pair.swapped : pair)
+    }
+
+    private var canFlipSeats: Bool {
+        showsWaveLayout && (coordinator.isSessionActive || !coordinator.turns.isEmpty || coordinator.state == .interrupted)
     }
 
     private func swapLanguagePair() {
-        applyLanguagePair(settings.value.pair.swapped)
+        if canFlipSeats {
+            // Move readers and their history together while the audio session
+            // keeps its original speaker identities and playback direction.
+            bottomSeat = bottomSeat.other
+        } else {
+            applyLanguagePair(settings.value.pair.swapped)
+        }
     }
 
     private func applyLanguagePair(_ pair: LanguagePair) {
@@ -1031,7 +1057,7 @@ struct ContinuousConversationView: View {
             return oldState == .preparing
                 || oldState == .resuming
                 || oldState == .pausedForPlayback
-        case .pausedByUser, .interrupted, .ended, .failed:
+        case .paused, .interrupted, .ended, .failed:
             return true
         case .idle, .preparing, .pausing, .resuming, .catchingUp,
              .pausedForPlayback, .ending:

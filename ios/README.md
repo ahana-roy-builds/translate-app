@@ -51,10 +51,37 @@ before installing on a phone:
 make ios-test
 ```
 
-`make ios-test` generates `LocalLingo.xcodeproj` and runs the `LocalLingo`
+`make ios-test` generates `LocalLingo.xcodeproj` and runs the `Speak Duet`
 scheme using the Debug configuration. A simulator compile and test run does not
 verify Listen recognition models, Translation assets, microphone behavior, or
 Speak system voices.
+
+### Repeatable Talk regression tests
+
+The same simulator command runs locally and in pull-request CI. It covers turn handling, speaker routing, playback, the 20-second silence cutoff and resume, transcript rendering, Relay controls, language-pack navigation and downloads, and checks on numbers and other important details. Run it from the repository root with Xcode and XcodeGen installed.
+
+```sh
+make ios-talk-test
+```
+
+The default destination is the iPhone 17 simulator on the latest installed iOS. To select another installed iPhone, use `python3 evaluation/scripts/run_talk_tests.py simulator --simulator 'platform=iOS Simulator,id=SIMULATOR_UDID'`. CI supplies its pinned runtime.
+
+For physical tests, use an unlocked development iPhone and the Debug signing configuration described above. Get its UDID with `xcrun xctrace list devices`. Replace `IPHONE_UDID` in the commands below. Each command generates the project, builds the tests, and writes a fresh run folder under `evaluation/results/talk/`.
+
+| Suite | What it checks | Command |
+| --- | --- | --- |
+| Recorded device checks | English–Hindi controlled silence and queued speech, plus an English–Spanish recorded conversation and replay with the installed Apple models | `python3 evaluation/scripts/run_talk_tests.py device --device IPHONE_UDID` |
+| All language pairs | Three phrases in both directions for each of 29 supported pairs, 174 turns total. Includes speaker assignment, transcript and translation meaning, target voice, and replay. | `python3 evaluation/scripts/run_talk_tests.py matrix --device IPHONE_UDID` |
+| English–Spanish and English–Hindi comparison | The same scoring on 12 turns, with automatic playback enabled | `python3 evaluation/scripts/run_talk_tests.py matrix --device IPHONE_UDID --pairs en-US_es-ES,en-US_hi-IN --auto-speak` |
+| Live microphone | Microphone recovery after playback, Relay controls, and a 20-second quiet interval. Put the phone beside the Mac speaker. The runner plays the Hindi and English clips when the phone is listening. | `python3 evaluation/scripts/run_talk_tests.py live --device IPHONE_UDID` |
+
+Before a TestFlight upload, `make ios-talk-preflight DEVICE_UDID=IPHONE_UDID` runs the simulator, recorded device checks, then the full matrix with Auto Speak. It stops at the first unsuccessful suite. Run the live microphone suite separately when the phone and Mac are in the same quiet room.
+
+Install the relevant translation packs and voices before a device run. The matrix also installs missing listening assets and releases its temporary reservations on normal completion. Keep the Mac speaker audible during the live suite.
+
+Open `tests.xcresult` in Xcode for individual failures, skips, and UI attachments. Each run keeps the Xcode log and a `summary.json` verdict. Selected tests that skip, including for missing packs, make the run incomplete and return a nonzero exit code. CI retains the simulator run as a downloadable artifact for seven days.
+
+The matrix also writes `matrix-score.json` using the checked-in reviewed transcripts and translations. It flags missing turns, incorrect routing or playback, regressions on previously correct transcripts or translations, and new wording that needs human review. Previously observed meaning errors remain visible in the counts. The underlying runner also supports the reversed-primary rapid-reply and shared-analyzer experiments. [Matrix options and scoring](../evaluation/README.md#continuous-speech-on-iphone)
 
 ### Install and prepare an iPhone
 

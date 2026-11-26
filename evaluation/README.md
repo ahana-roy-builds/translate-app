@@ -168,6 +168,8 @@ prerequisites, and the go/no-go boundary.
 
 ## Continuous speech on iPhone
 
+Run the simulator, installed-model checks, scored language matrix, or live microphone tests from the repository root. The [Talk testing guide](../ios/README.md#repeatable-talk-regression-tests) lists the commands and result files.
+
 The opt-in `ContinuousSpeechMatrixTests` feeds the checked-in synthetic WAV files at microphone speed. Build the LocalLingo scheme with `build-for-testing` for iOS, then run `python3 evaluation/scripts/run_continuous_matrix.py <xctestrun> <device-UDID> <result.xcresult>` from the repo root. The recordings and SHA-256 manifest are in the unit-test bundle. Use an unlocked development iPhone with the translation packs installed. The test downloads missing listening assets and rotates its own reservations while preserving the initial reservation set.
 
 Use `--pairs en-US_es-ES,en-US_fr-FR` for the short comparison, `--shared` for the analyzer shared across turns, `--auto-speak` for the playback check, and `--reverse-primary --lifecycle` for a rapid reply, Pause, Resume and Stop with the participants swapped. Add `--bridge` for the Spanish station-near-the-bridge recording. Test output prefixed with `MATRIX` records source, target, both candidates, transcript, translation, participant, boundary-to-commit timing, review and replay outcome. Semantic grading requires comparing the stored message against the fixture's intended meaning.

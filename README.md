@@ -170,6 +170,8 @@ security review.
 make test-fast
 ```
 
+Run `make ios-talk-test` on a Mac for the conversation and Relay simulator checks used in CI. The recorded iPhone, all-language matrix and live microphone commands are in the [Talk testing guide](ios/README.md#repeatable-talk-regression-tests).
+
 `make test-integration` additionally requires pinned Terraform, XcodeGen, Xcode
 26.4+, and the configured simulator. The pinned GitHub workflow runs fast and
 Terraform validation on each pull request; it does not claim physical-device or

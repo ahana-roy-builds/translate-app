@@ -27,9 +27,9 @@ final class ContinuousConversationCoordinator: ObservableObject {
         case languageCorrection(UUID, AlternateTranscript)
     }
 
-    private enum ReviewedPlaybackOrigin {
+    private enum ReviewedPlaybackOrigin: Equatable {
         case listening
-        case pausedByUser
+        case paused(ListeningPauseReason)
         case microphoneOff
     }
 
@@ -60,18 +60,19 @@ final class ContinuousConversationCoordinator: ObservableObject {
     private var workerTask: Task<Void, Never>?
     private var endingTask: Task<Void, Never>?
     private var pauseTask: Task<Void, Never>?
-    private var userPauseTask: Task<Void, Never>?
+    private var listeningPauseTask: Task<Void, Never>?
     private var resumeTask: Task<Void, Never>?
     private var reviewedPlaybackTask: Task<Void, Never>?
     private var resetTask: Task<Void, Never>?
     private var isProcessingWork = false
     private var activeCorrectionTurnID: UUID?
+    private var silenceStartedAt: CMTime?
     private var isCapturePaused = false
     private var recognitionInputClosedForPlayback = false
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "SpeakDuet", category: "ContinuousTalk")
     @Published private(set) var hasActiveSpeech = false
     private var utteranceWasAuthorized = false
-    private var isUserPauseRequested = false
+    private var isPauseRequested = false
     private var isEnding = false
     @Published private var isSceneActive = true
     private var isRequestingPermission = false
@@ -132,7 +133,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
             case .pausedForPlayback, .ended, .interrupted, .failed:
                 return "Playing reviewed translation; microphone paused"
             case .idle, .preparing, .listening, .catchingUp, .pausing,
-                 .pausedByUser, .resuming, .ending:
+                 .paused, .resuming, .ending:
                 break
             }
         }
@@ -151,7 +152,9 @@ final class ContinuousConversationCoordinator: ObservableObject {
             "Speaking translation; microphone paused"
         case .pausing:
             "Finishing the current thought"
-        case .pausedByUser, .interrupted:
+        case .paused(.silence):
+            "Paused after 20 seconds of silence"
+        case .paused(.user), .interrupted:
             "Listening paused"
         case .resuming:
             "Resuming offline listening"
@@ -192,7 +195,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
         recognitionInputClosedForPlayback = false
         hasActiveSpeech = false
         utteranceWasAuthorized = false
-        isUserPauseRequested = false
+        isPauseRequested = false
         isProcessingWork = false
         isEnding = false
         let now = Date()
@@ -243,7 +246,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
         recognitionInputClosedForPlayback = false
         hasActiveSpeech = false
         utteranceWasAuthorized = false
-        isUserPauseRequested = false
+        isPauseRequested = false
         isProcessingWork = false
         activeCorrectionTurnID = nil
         isEnding = false
@@ -260,21 +263,21 @@ final class ContinuousConversationCoordinator: ObservableObject {
         }
     }
 
-    func pauseSession() {
+    func pauseSession(reason: ListeningPauseReason = .user) {
         switch state {
         case .listening, .catchingUp:
             break
         case .idle, .preparing, .pausedForPlayback, .pausing,
-             .pausedByUser, .resuming, .ending, .ended, .interrupted, .failed:
+             .paused, .resuming, .ending, .ended, .interrupted, .failed:
             return
         }
-        guard !isEnding, userPauseTask == nil else { return }
+        guard !isEnding, listeningPauseTask == nil else { return }
 
-        isUserPauseRequested = true
+        isPauseRequested = true
         state = .pausing
         let generation = sessionGeneration
-        userPauseTask = Task { @MainActor [weak self] in
-            await self?.finishUserPause(generation: generation)
+        listeningPauseTask = Task { @MainActor [weak self] in
+            await self?.finishListeningPause(reason: reason, generation: generation)
         }
     }
 
@@ -283,16 +286,16 @@ final class ContinuousConversationCoordinator: ObservableObject {
             restartSession(pair: pair)
             return
         }
-        guard isSceneActive, state == .pausedByUser,
+        guard isSceneActive, case .paused = state,
               !isEnding,
               reviewedPlaybackTask == nil,
               resumeTask == nil else { return }
 
-        isUserPauseRequested = false
+        isPauseRequested = false
         state = .resuming
         let generation = sessionGeneration
         resumeTask = Task { @MainActor [weak self] in
-            await self?.resumeUserSession(generation: generation)
+            await self?.resumeListening(generation: generation)
         }
     }
 
@@ -316,18 +319,18 @@ final class ContinuousConversationCoordinator: ObservableObject {
         case .listening:
             return capture.isActive
                 && !isCapturePaused
-                && !isUserPauseRequested
+                && !isPauseRequested
                 && !hasActiveSpeech
                 && draft == nil
                 && pendingWorkCount == 0
                 && workerTask == nil
-                && userPauseTask == nil
+                && listeningPauseTask == nil
                 && resumeTask == nil
-        case .pausedByUser:
+        case .paused:
             return !capture.isActive
                 && pendingWorkCount == 0
                 && workerTask == nil
-                && userPauseTask == nil
+                && listeningPauseTask == nil
                 && resumeTask == nil
         case .ended, .interrupted, .failed:
             return !capture.isActive
@@ -350,9 +353,9 @@ final class ContinuousConversationCoordinator: ObservableObject {
         reviewedPlaybackTurnID = request.turnID
         switch request.origin {
         case .listening:
-            isUserPauseRequested = true
+            isPauseRequested = true
             state = .pausing
-        case .pausedByUser:
+        case .paused:
             state = .pausedForPlayback
         case .microphoneOff:
             break
@@ -378,7 +381,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
         if reviewedPlaybackTask != nil {
             guard state == .pausedForPlayback else { return }
             cancelReviewedPlayback()
-            isUserPauseRequested = false
+            isPauseRequested = false
             isEnding = true
             state = .ending
             draft = nil
@@ -392,7 +395,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
             return
         }
 
-        let inputNeedsFinalization = state != .pausedByUser
+        let inputNeedsFinalization = if case .paused = state { false } else { true }
         isEnding = true
         state = .ending
         draft = nil
@@ -474,8 +477,8 @@ final class ContinuousConversationCoordinator: ObservableObject {
         switch state {
         case .listening:
             origin = .listening
-        case .pausedByUser:
-            origin = .pausedByUser
+        case let .paused(reason):
+            origin = .paused(reason)
         case .ended, .interrupted, .failed:
             origin = .microphoneOff
         case .idle, .preparing, .catchingUp, .pausedForPlayback, .pausing,
@@ -551,10 +554,10 @@ final class ContinuousConversationCoordinator: ObservableObject {
 
         switch request.origin {
         case .listening:
-            isUserPauseRequested = false
+            isPauseRequested = false
             await resumeCapture(generation: generation)
-        case .pausedByUser:
-            state = .pausedByUser
+        case let .paused(reason):
+            state = .paused(reason)
         case .microphoneOff:
             break
         }
@@ -612,6 +615,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
             return try await self.consume(captured, generation: generation)
         }
         isCapturePaused = false
+        silenceStartedAt = nil
     }
 
     private func startRecognition(
@@ -625,7 +629,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
             onDraft: { [weak self] update in
                 guard let self,
                       self.sessionGeneration == generation, self.recognitionStream == stream,
-                      update == nil || (self.hasActiveSpeech && !self.isEnding && !self.isUserPauseRequested) else { return }
+                      update == nil || (self.hasActiveSpeech && !self.isEnding && !self.isPauseRequested) else { return }
                 self.draft = update
             },
             onFailure: { [weak self] error in
@@ -669,6 +673,14 @@ final class ContinuousConversationCoordinator: ObservableObject {
             scheduleCapturePause(generation: generation)
             return .finish(.finished)
         }
+        // Detector timestamps count analyzed microphone audio, so time spent
+        // preparing models or playing a translation cannot trigger a pause.
+        if silenceStartedAt == nil { silenceStartedAt = result.processedThrough }
+        if let silenceStartedAt, !hasActiveSpeech, isCaptureActive, !isEnding, !isPauseRequested,
+           CMTimeSubtract(result.processedThrough, silenceStartedAt).seconds >= ContinuousModePolicy.silenceTimeout {
+            pauseSession(reason: .silence)
+            return .finish(.finished)
+        }
         return .continueCapture
     }
 
@@ -688,6 +700,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
             }
             guard case let .speechEnded(range, _) = event else { continue }
             hasActiveSpeech = false
+            silenceStartedAt = range.end
             draft = nil
             let duration = CMTimeGetSeconds(range.duration)
             guard duration.isFinite, duration > 0 else { continue }
@@ -797,7 +810,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
             isProcessingWork = false
 
             if !isEnding,
-               !isUserPauseRequested,
+               !isPauseRequested,
                isCapturePaused,
                !recognitionInputClosedForPlayback,
                !speakTranslations,
@@ -819,7 +832,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
             startWorkerIfNeeded(generation: generation)
             return
         }
-        if !isEnding, !isUserPauseRequested, isCapturePaused {
+        if !isEnding, !isPauseRequested, isCapturePaused {
             await resumeCapture(generation: generation)
         }
         publishOperationalState()
@@ -1085,7 +1098,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
         if let pauseTask { await pauseTask.value }
         guard sessionGeneration == generation,
               !isEnding,
-              !isUserPauseRequested,
+              !isPauseRequested,
               isSceneActive,
               isCapturePaused,
               !capture.isActive else { return }
@@ -1093,10 +1106,10 @@ final class ContinuousConversationCoordinator: ObservableObject {
             if recognitionInputClosedForPlayback {
                 try await voiceActivity.prepare()
                 try validate(generation)
-                guard state.isRunning, !isEnding, !isUserPauseRequested else { return }
+                guard state.isRunning, !isEnding, !isPauseRequested else { return }
                 try await startRecognition(pair: pair, generation: generation)
                 try validate(generation)
-                guard state.isRunning, !isEnding, !isUserPauseRequested, isSceneActive else {
+                guard state.isRunning, !isEnding, !isPauseRequested, isSceneActive else {
                     if !state.isRunning { recognition.stop() }
                     return
                 }
@@ -1111,7 +1124,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
         }
     }
 
-    private func finishUserPause(generation: UUID) async {
+    private func finishListeningPause(reason: ListeningPauseReason, generation: UUID) async {
         do {
             if let pauseTask { await pauseTask.value }
             try validate(generation)
@@ -1134,9 +1147,9 @@ final class ContinuousConversationCoordinator: ObservableObject {
             await voiceActivity.reset()
             try validate(generation)
             hasActiveSpeech = false
-            userPauseTask = nil
+            listeningPauseTask = nil
             draft = nil
-            state = .pausedByUser
+            state = .paused(reason)
         } catch is CancellationError {
             return
         } catch {
@@ -1144,7 +1157,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
         }
     }
 
-    private func resumeUserSession(generation: UUID) async {
+    private func resumeListening(generation: UUID) async {
         do {
             try validate(generation)
             try await voiceActivity.prepare()
@@ -1198,11 +1211,11 @@ final class ContinuousConversationCoordinator: ObservableObject {
             preparationTask = nil
             endingTask = nil
             pauseTask = nil
-            userPauseTask = nil
+            listeningPauseTask = nil
             resumeTask = nil
             isEnding = false
             isCapturePaused = false
-            isUserPauseRequested = false
+            isPauseRequested = false
             draft = nil
             state = .ended
         } catch is CancellationError {
@@ -1214,9 +1227,9 @@ final class ContinuousConversationCoordinator: ObservableObject {
 
     private func publishOperationalState() {
         guard !isEnding, state.isRunning else { return }
-        if isUserPauseRequested {
+        if isPauseRequested {
             switch state {
-            case .pausedForPlayback, .pausing, .pausedByUser:
+            case .pausedForPlayback, .pausing, .paused:
                 return
             case .idle, .preparing, .listening, .catchingUp, .resuming,
                  .ending, .ended, .interrupted, .failed:
@@ -1257,14 +1270,14 @@ final class ContinuousConversationCoordinator: ObservableObject {
         workerTask?.cancel()
         endingTask?.cancel()
         pauseTask?.cancel()
-        userPauseTask?.cancel()
+        listeningPauseTask?.cancel()
         resumeTask?.cancel()
         reviewedPlaybackTask?.cancel()
         preparationTask = nil
         workerTask = nil
         endingTask = nil
         pauseTask = nil
-        userPauseTask = nil
+        listeningPauseTask = nil
         resumeTask = nil
         reviewedPlaybackTask = nil
         reviewedPlaybackTurnID = nil
@@ -1281,7 +1294,7 @@ final class ContinuousConversationCoordinator: ObservableObject {
         recognitionInputClosedForPlayback = false
         hasActiveSpeech = false
         utteranceWasAuthorized = false
-        isUserPauseRequested = false
+        isPauseRequested = false
         isEnding = false
         isRequestingPermission = false
         draft = nil
